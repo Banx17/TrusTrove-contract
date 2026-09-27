@@ -44,11 +44,15 @@ impl PoolContract {
     /// * `admin` - The admin address for this contract.
     /// * `invoice_contract` - The invoice contract address.
     /// * `escrow_contract` - The escrow contract address.
-    /// * `usdc_asset` - The USDC asset address.
+    /// * `funding_asset` - The asset this pool instance funds invoices with.
     /// * `registry_contract` - The registry contract address, consulted by
     ///   `fund_invoice` to re-verify the issuer and buyer are still verified
     ///   before pool capital is committed.
     /// * `treasury` - The treasury address receiving protocol fee cuts (may equal admin initially).
+    /// * `min_initial_deposit` - The minimum first deposit an empty pool will
+    ///   accept, in `funding_asset` stroops. Callers funding an asset with
+    ///   different decimals than the original USDC-only pool must scale this
+    ///   accordingly rather than reuse `DEFAULT_MIN_INITIAL_DEPOSIT`.
     ///
     /// Protocol fee storage (`DataKey::ProtocolFeeBps`) is explicitly initialized to 0 bps
     /// and `DataKey::TreasuryAddress` is initialized to the provided `treasury` address.
@@ -59,16 +63,16 @@ impl PoolContract {
     /// # Wiring order
     /// `escrow_contract` must already be initialized before this call, since
     /// `initialize` cross-checks `escrow_contract.get_usdc_asset()` against
-    /// its own `usdc_asset` to catch a misconfigured deploy where escrow was
+    /// its own `funding_asset` to catch a misconfigured deploy where escrow was
     /// wired up with a different token.
     ///
     /// # Panics
     /// * `AlreadyInitialized` if the contract has already been initialized.
     /// * `InvalidConfiguration` if any two of `admin`, `invoice_contract`,
-    ///   `escrow_contract`, `usdc_asset`, and `registry_contract` are the
+    ///   `escrow_contract`, `funding_asset`, and `registry_contract` are the
     ///   same address.
     /// * `EscrowAssetMismatch` if `escrow_contract`'s configured USDC asset
-    ///   does not match `usdc_asset`.
+    ///   does not match `funding_asset`.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -76,45 +80,47 @@ impl PoolContract {
     /// # Example
     /// ```ignore
     /// escrow_client.initialize(&admin, &pool, &invoice, &usdc); // escrow first
-    /// client.initialize(&admin, &invoice, &escrow, &usdc, &registry, &admin);
+    /// client.initialize(&admin, &invoice, &escrow, &usdc, &registry, &admin, &min_deposit);
     /// ```
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         env: Env,
         admin: Address,
         invoice_contract: Address,
         escrow_contract: Address,
-        usdc_asset: Address,
+        funding_asset: Address,
         registry_contract: Address,
         treasury: Address,
+        min_initial_deposit: u128,
     ) {
         if Self::admin(&env).is_some() {
             panic_with_error!(&env, PoolError::AlreadyInitialized);
         }
         if admin == invoice_contract
             || admin == escrow_contract
-            || admin == usdc_asset
+            || admin == funding_asset
             || admin == registry_contract
             || invoice_contract == escrow_contract
-            || invoice_contract == usdc_asset
+            || invoice_contract == funding_asset
             || invoice_contract == registry_contract
-            || escrow_contract == usdc_asset
+            || escrow_contract == funding_asset
             || escrow_contract == registry_contract
-            || usdc_asset == registry_contract
+            || funding_asset == registry_contract
         {
             panic_with_error!(&env, PoolError::InvalidConfiguration);
         }
 
         // Cross-check that the escrow contract being wired in was itself
-        // initialized with the same usdc_asset. A mismatch here would only
+        // initialized with the same funding_asset. A mismatch here would only
         // otherwise surface later as a failed token transfer inside
         // fund_invoice's escrow.lock call, since escrow.lock pulls funds
         // using escrow's own configured token client. This requires
         // escrow_contract to already be initialized at the time pool.initialize
         // is called.
         let args = Vec::new(&env);
-        let escrow_usdc_asset: Address =
+        let escrow_funding_asset: Address =
             env.invoke_contract(&escrow_contract, &Symbol::new(&env, "get_usdc_asset"), args);
-        if escrow_usdc_asset != usdc_asset {
+        if escrow_funding_asset != funding_asset {
             panic_with_error!(&env, PoolError::EscrowAssetMismatch);
         }
 
@@ -128,7 +134,7 @@ impl PoolContract {
             .set(&DataKey::EscrowContract, &escrow_contract);
         env.storage()
             .instance()
-            .set(&DataKey::UsdcAsset, &usdc_asset);
+            .set(&DataKey::FundingAsset, &funding_asset);
         env.storage()
             .instance()
             .set(&DataKey::RegistryContract, &registry_contract);
@@ -156,6 +162,9 @@ impl PoolContract {
         env.storage()
             .instance()
             .set(&DataKey::TreasuryAddress, &treasury);
+        env.storage()
+            .instance()
+            .set(&DataKey::MinInitialDeposit, &min_initial_deposit);
         Self::extend_instance_ttl(&env);
 
         events::pool_initialized(
@@ -163,11 +172,11 @@ impl PoolContract {
             &admin,
             &invoice_contract,
             &escrow_contract,
-            &usdc_asset,
+            &funding_asset,
         );
     }
 
-    /// Returns the USDC asset used by the pool.
+    /// Returns the funding asset used by the pool.
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
@@ -176,17 +185,24 @@ impl PoolContract {
     /// No authorization is required.
     ///
     /// # Panics
-    /// * Panics if the contract has not been initialized (missing `UsdcAsset`).
+    /// * Panics if the contract has not been initialized (missing `FundingAsset`).
     ///
     /// # Returns
-    /// * `Address` - The USDC asset address.
+    /// * `Address` - The funding asset address.
     ///
     /// # Example
     /// ```ignore
-    /// let asset = client.get_usdc_asset();
+    /// let asset = client.get_funding_asset();
     /// ```
+    pub fn get_funding_asset(env: Env) -> Address {
+        Self::funding_asset(&env)
+    }
+
+    /// Deprecated alias for [`Self::get_funding_asset`], kept so integrators
+    /// built against the pre-factory USDC-only naming keep working. New
+    /// callers should use `get_funding_asset` instead.
     pub fn get_usdc_asset(env: Env) -> Address {
-        Self::usdc(&env)
+        Self::funding_asset(&env)
     }
 
     /// Returns the admin address for the pool.
@@ -266,7 +282,7 @@ impl PoolContract {
     /// Requires self-authorization from `lp` (via `lp.require_auth()`).
     ///
     /// # Panics
-    /// * `InvalidAmount` if `usdc_amount` is zero or if initial deposit is below `MIN_INITIAL_DEPOSIT`.
+    /// * `InvalidAmount` if `usdc_amount` is zero or if initial deposit is below this instance's configured minimum (see `initialize`'s `min_initial_deposit`).
     /// * `MinimumDeposit` if the deposit is too small to mint at least 1 share
     ///   at the current share price (prevents 0-share dust deposits).
     /// * `Overflow` if `usdc_amount * total_shares` would overflow `u128`
@@ -290,7 +306,9 @@ impl PoolContract {
         let total_shares = totals.shares;
         let total_deposits = totals.deposits;
 
-        if (total_shares == 0 || total_deposits == 0) && usdc_amount < MIN_INITIAL_DEPOSIT {
+        if (total_shares == 0 || total_deposits == 0)
+            && usdc_amount < Self::min_initial_deposit(&env)
+        {
             panic_with_error!(&env, PoolError::InvalidAmount);
         }
 
@@ -314,7 +332,7 @@ impl PoolContract {
             panic_with_error!(&env, PoolError::MinimumDeposit);
         }
 
-        let usdc_id = Self::usdc(&env);
+        let usdc_id = Self::funding_asset(&env);
         let usdc = token::Client::new(&env, &usdc_id);
         usdc.transfer(&lp, &env.current_contract_address(), &(usdc_amount as i128));
 
@@ -418,7 +436,7 @@ impl PoolContract {
             panic_with_error!(&env, PoolError::InsufficientLiquidity);
         }
 
-        let usdc_id = Self::usdc(&env);
+        let usdc_id = Self::funding_asset(&env);
         let usdc = token::Client::new(&env, &usdc_id);
         usdc.transfer(
             &env.current_contract_address(),
@@ -646,7 +664,7 @@ impl PoolContract {
             &Symbol::new(&env, "get_funding_asset"),
             args,
         );
-        let usdc_id = Self::usdc(&env);
+        let usdc_id = Self::funding_asset(&env);
         if invoice_asset != usdc_id {
             panic_with_error!(&env, PoolError::AssetMismatch);
         }
@@ -819,7 +837,7 @@ impl PoolContract {
 
         // Transfer the buyer's refund out of the pool's USDC balance. Skipped
         // entirely when the refund is zero.
-        let usdc_id = Self::usdc(&env);
+        let usdc_id = Self::funding_asset(&env);
         let usdc = token::Client::new(&env, &usdc_id);
         if refund > 0 {
             usdc.transfer(&env.current_contract_address(), &buyer, &(refund as i128));
@@ -1241,11 +1259,18 @@ impl PoolContract {
         env.storage().instance().get(&DataKey::EscrowContract)
     }
 
-    fn usdc(env: &Env) -> Address {
+    fn funding_asset(env: &Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::UsdcAsset)
-            .expect("pool is not initialized: USDC asset missing")
+            .get(&DataKey::FundingAsset)
+            .expect("pool is not initialized: funding asset missing")
+    }
+
+    fn min_initial_deposit(env: &Env) -> u128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinInitialDeposit)
+            .unwrap_or(DEFAULT_MIN_INITIAL_DEPOSIT)
     }
 
     fn registry_contract(env: &Env) -> Address {
@@ -1356,7 +1381,7 @@ impl PoolContract {
                 .instance()
                 .get::<_, Address>(&DataKey::TreasuryAddress)
             {
-                let usdc_id = Self::usdc(env);
+                let usdc_id = Self::funding_asset(env);
                 let usdc = token::Client::new(env, &usdc_id);
                 usdc.transfer(
                     &env.current_contract_address(),
