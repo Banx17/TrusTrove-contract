@@ -943,26 +943,6 @@ impl PoolContract {
         true
     }
 
-    /// Returns current pool statistics and utilization metrics.
-    ///
-    /// # Arguments
-    /// * `env` - The Soroban environment.
-    ///
-    /// # Auth
-    /// No authorization is required.
-    ///
-    /// # Panics
-    /// * `NotInitialized` if the pool contract has not been initialized.
-    /// * `Overflow` if scaling `total_funded` into basis points would overflow.
-    ///
-    /// # Returns
-    /// * `PoolStats` - The current pool statistics.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let stats = client.get_stats();
-    /// ```
-
     /// Returns the LP share balance for a given address (SEP-41 interface).
     ///
     /// # Arguments
@@ -990,12 +970,31 @@ impl PoolContract {
     pub fn total_supply(env: Env) -> i128 {
         let total: u128 = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::TotalShares)
             .unwrap_or(0);
         total as i128
     }
 
+    /// Returns current pool statistics and utilization metrics.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool contract has not been initialized.
+    /// * `Overflow` if scaling `total_funded` into basis points would overflow.
+    ///
+    /// # Returns
+    /// * `PoolStats` - The current pool statistics.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let stats = client.get_stats();
+    /// ```
     pub fn get_stats(env: Env) -> PoolStats {
         if Self::admin(&env).is_none() {
             panic_with_error!(&env, PoolError::NotInitialized);
