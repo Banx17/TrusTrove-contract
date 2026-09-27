@@ -326,7 +326,8 @@ fn setup() -> TestEnv {
     escrow.initialize(&admin, &pool_id, &usdc_id);
 
     let pool = PoolContractClient::new(&env, &pool_id);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id);
+    let treasury_address = Address::generate(&env);
+    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
 
     invoice.add_supported_asset(&usdc_id);
     invoice.add_supported_asset(&xlm_id);
@@ -1106,7 +1107,8 @@ fn test_default_max_utilization_in_stats() {
     let pool_id = env.register_contract(None, PoolContract);
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
     let pool = PoolContractClient::new(&env, &pool_id);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id);
+    let treasury_address = Address::generate(&env);
+    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
     let stats = pool.get_stats();
     assert_eq!(stats.max_utilization_bps, 8500);
 }
@@ -1510,8 +1512,8 @@ fn test_receive_repayment() {
         invoice_id
     );
     assert_eq!(
-        <(u128, u128)>::try_from_val(&te.env, &data).unwrap(),
-        (10_000_000_000, yield_amount)
+        <(u128, u128, u128)>::try_from_val(&te.env, &data).unwrap(),
+        (10_000_000_000, yield_amount, 0)
     );
 }
 
@@ -1677,8 +1679,8 @@ fn test_receive_repayment_with_refund_happy_path() {
         invoice_id
     );
     assert_eq!(
-        <(u128, u128)>::try_from_val(&te.env, &data).unwrap(),
-        (amount, yield_amount)
+        <(u128, u128, u128)>::try_from_val(&te.env, &data).unwrap(),
+        (amount, yield_amount, 0)
     );
 }
 
@@ -1755,8 +1757,8 @@ fn test_receive_repayment_with_refund_zero_refund_matches_receive_repayment() {
         invoice_id
     );
     assert_eq!(
-        <(u128, u128)>::try_from_val(&te.env, &data).unwrap(),
-        (amount, DEFAULT_YIELD_AMOUNT)
+        <(u128, u128, u128)>::try_from_val(&te.env, &data).unwrap(),
+        (amount, DEFAULT_YIELD_AMOUNT, 0)
     );
 }
 
@@ -2645,7 +2647,8 @@ fn test_initialize_rejects_each_pairwise_address_collision() {
 
         let pool_id = env.register_contract(None, PoolContract);
         let pool = PoolContractClient::new(&env, &pool_id);
-        let res = pool.try_initialize(&addrs[0], &addrs[1], &addrs[2], &addrs[3], &addrs[4]);
+        let treasury_address = Address::generate(&env);
+        let res = pool.try_initialize(&addrs[0], &addrs[1], &addrs[2], &addrs[3], &addrs[4], &treasury_address);
         assert!(
             res.is_err(),
             "collision between initialize() params {i} and {j} should be rejected"
@@ -2729,7 +2732,8 @@ fn test_deposit_extends_instance_ttl_when_below_threshold() {
     );
 
     let pool = PoolContractClient::new(&env, &pool_id);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id);
+    let treasury_address = Address::generate(&env);
+    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
 
     // After initialize: TTL should be bumped to ~TTL_EXTEND_TO.
     let ttl_after = env.as_contract(&pool_id, || env.storage().instance().get_ttl());
@@ -2875,6 +2879,7 @@ fn test_double_initialize_panics() {
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
 
     // First pool initialize — succeeds with explicit auth
+    let treasury_address = Address::generate(&env);
     env.mock_auths(&[MockAuth {
         address: &admin,
         invoke: &MockAuthInvoke {
@@ -2886,12 +2891,13 @@ fn test_double_initialize_panics() {
                 escrow_id.clone(),
                 usdc_id.clone(),
                 registry_id.clone(),
+                treasury_address.clone(),
             )
                 .into_val(&env),
             sub_invokes: &[],
         },
     }]);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id);
+    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
 
     // Verify storage state after first initialize
     env.as_contract(&pool_id, || {
@@ -2914,7 +2920,7 @@ fn test_double_initialize_panics() {
     });
 
     // Second initialize — panics with AlreadyInitialized (#1)
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id);
+    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
 }
 
 #[test]
@@ -3058,8 +3064,9 @@ mod real_registry_integration {
         let escrow = RealEscrowClient::new(&env, &escrow_id);
         escrow.initialize(&admin, &pool_id, &usdc_id);
 
-        let pool = PoolContractClient::new(&env, &pool_id);
-        pool.initialize(&admin, &invoice_id_addr, &escrow_id, &usdc_id, &registry_id);
+        let treasury_address = Address::generate(&env);
+    let pool = PoolContractClient::new(&env, &pool_id);
+    pool.initialize(&admin, &invoice_id_addr, &escrow_id, &usdc_id, &registry_id, &treasury_address);
 
         invoice.add_supported_asset(&usdc_id);
         invoice.set_pool_contract(&pool_id);
@@ -3231,11 +3238,12 @@ fn test_initialize_emits_pool_initialized_event() {
     let usdc_id = env.register_contract(None, MockToken);
 
     RealInvoiceClient::new(&env, &invoice_id).initialize(&admin, &registry_id);
+    let treasury_address = Address::generate(&env);
     let pool_addr = env.register_contract(None, PoolContract);
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_addr, &usdc_id);
 
     let pool = PoolContractClient::new(&env, &pool_addr);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id);
+    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
 
     let events = env.events().all();
     let mut found = false;
@@ -3658,4 +3666,115 @@ fn test_gas_benchmark_deposit_and_withdraw() {
     assert!(withdraw_cpu > 0);
     assert!(withdraw_mem > 0);
     assert_eq!(returned, 5_000_000_000);
+}
+
+// ============== PROTOCOL FEE TESTS ==============
+
+#[test]
+fn test_protocol_fee_zero_fee_bps_unchanged_behavior() {
+    let mut te = setup();
+    // Set fee_bps to 0 (default)
+    te.pool.set_fee_bps(&te.admin, &0);
+
+    // Fund and repay an invoice
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    let _ = te.pool.fund_invoice(&invoice_id);
+    te.invoice.mark_shipped(&invoice_id);
+    te.invoice.confirm_delivery(&invoice_id, &te.issuer);
+    te.invoice.confirm_delivery(&invoice_id, &te.buyer);
+    te.env.ledger().set_timestamp(te.env.ledger().timestamp() + 86401);
+    te.invoice.repay(&invoice_id);
+
+    // With 0% fee, behavior should be unchanged
+    let stats = te.pool.get_stats();
+    assert_eq!(stats.total_yield_distributed, DEFAULT_YIELD_AMOUNT);
+    assert_eq!(stats.total_deposits, 10_000_000_000 + DEFAULT_YIELD_AMOUNT); // initial deposit + yield
+}
+
+#[test]
+fn test_protocol_fee_non_zero_fee_bps_split_correctly() {
+    let mut te = setup();
+    // Set fee_bps to 500 (5%)
+    te.pool.set_fee_bps(&te.admin, &500);
+    // Treasury address is already set in setup
+
+    // Fund and repay an invoice
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    let _ = te.pool.fund_invoice(&invoice_id);
+    te.invoice.mark_shipped(&invoice_id);
+    te.invoice.confirm_delivery(&invoice_id, &te.issuer);
+    te.invoice.confirm_delivery(&invoice_id, &te.buyer);
+    te.env.ledger().set_timestamp(te.env.ledger().timestamp() + 86401);
+    te.invoice.repay(&invoice_id);
+
+    // Calculate expected values
+    // yield_amount = 200_000_000 (from DEFAULT_YIELD_AMOUNT)
+    // protocol_cut = yield_amount * 500 / 10_000 = 200_000_000 * 500 / 10_000 = 10_000_000
+    // lp_yield = yield_amount - protocol_cut = 200_000_000 - 10_000_000 = 190_000_000
+    let expected_protocol_cut = 10_000_000;
+    let expected_lp_yield = 190_000_000;
+
+    // Check pool accounting
+    let stats = te.pool.get_stats();
+    assert_eq!(stats.total_yield_distributed, expected_lp_yield); // Only LP yield goes to yield_distributed
+    assert_eq!(stats.total_deposits, 10_000_000_000 + expected_lp_yield); // initial deposit + LP yield
+
+    // Check treasury received the protocol cut
+    let usdc_id = te.usdc_id;
+    let treasury_balance = MockTokenClient::new(&te.env, &usdc_id).balance(&te.pool.get_treasury_address(&te.env));
+    assert_eq!(treasury_balance, expected_protocol_cut as i128);
+}
+
+#[test]
+fn test_protocol_fee_can_update_treasury_address() {
+    let mut te = setup();
+    let new_treasury = Address::generate(&te.env);
+
+    // Update treasury address
+    assert!(te.pool.set_treasury_address(&te.admin, &new_treasury));
+
+    // Verify it was updated
+    assert_eq!(te.pool.get_treasury_address(&te.env), new_treasury);
+}
+
+#[test]
+fn test_protocol_fee_with_refund() {
+    let mut te = setup();
+    // Set fee_bps to 200 (2%)
+    te.pool.set_fee_bps(&te.admin, &200);
+
+    // Fund and repay an invoice with refund
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    let _ = te.pool.fund_invoice(&invoice_id);
+    te.invoice.mark_shipped(&invoice_id);
+    te.invoice.confirm_delivery(&invoice_id, &te.issuer);
+    te.invoice.confirm_delivery(&invoice_id, &te.buyer);
+    te.env.ledger().set_timestamp(te.env.ledger().timestamp() + 86401);
+
+    // Repay with refund: amount=10_000_000_000, refund=50_000_000
+    // funded_amount = 9_800_000_000
+    // yield_amount = amount - funded_amount - refund = 10_000_000_000 - 9_800_000_000 - 50_000_000 = 150_000_000
+    // protocol_cut = yield_amount * 200 / 10_000 = 150_000_000 * 200 / 10_000 = 3_000_000
+    // lp_yield = yield_amount - protocol_cut = 150_000_000 - 3_000_000 = 147_000_000
+    let amount = 10_000_000_000;
+    let refund = 50_000_000;
+    let expected_protocol_cut = 3_000_000;
+    let expected_lp_yield = 147_000_000;
+
+    let result = te.pool.receive_repayment_with_refund(&invoice_id, &amount, &refund, &te.buyer);
+    assert!(result);
+
+    // Check pool accounting
+    let stats = te.pool.get_stats();
+    assert_eq!(stats.total_yield_distributed, expected_lp_yield);
+    assert_eq!(stats.total_deposits, 10_000_000_000 + expected_lp_yield);
+
+    // Check treasury received the protocol cut
+    let usdc_id = te.usdc_id;
+    let treasury_balance = MockTokenClient::new(&te.env, &usdc_id).balance(&te.pool.get_treasury_address(&te.env));
+    assert_eq!(treasury_balance, expected_protocol_cut as i128);
+
+    // Check buyer received refund
+    let buyer_balance = MockTokenClient::new(&te.env, &usdc_id).balance(&te.buyer);
+    assert_eq!(buyer_balance, refund as i128); // Assuming buyer started with 0
 }

@@ -48,6 +48,7 @@ impl PoolContract {
     /// * `registry_contract` - The registry contract address, consulted by
     ///   `fund_invoice` to re-verify the issuer and buyer are still verified
     ///   before pool capital is committed.
+    /// * `treasury_address` - The treasury address for protocol fee distribution.
     ///
     /// # Auth
     /// Requires authorization from `admin`.
@@ -61,7 +62,7 @@ impl PoolContract {
     /// # Panics
     /// * `AlreadyInitialized` if the contract has already been initialized.
     /// * `InvalidConfiguration` if any two of `admin`, `invoice_contract`,
-    ///   `escrow_contract`, `usdc_asset`, and `registry_contract` are the
+    ///   `escrow_contract`, `usdc_asset`, `registry_contract`, and `treasury_address` are the
     ///   same address.
     /// * `EscrowAssetMismatch` if `escrow_contract`'s configured USDC asset
     ///   does not match `usdc_asset`.
@@ -72,7 +73,7 @@ impl PoolContract {
     /// # Example
     /// ```ignore
     /// escrow_client.initialize(&admin, &pool, &invoice, &usdc); // escrow first
-    /// client.initialize(&admin, &invoice, &escrow, &usdc, &registry);
+    /// client.initialize(&admin, &invoice, &escrow, &usdc, &registry, &treasury);
     /// ```
     pub fn initialize(
         env: Env,
@@ -81,6 +82,7 @@ impl PoolContract {
         escrow_contract: Address,
         usdc_asset: Address,
         registry_contract: Address,
+        treasury_address: Address,
     ) {
         if Self::admin(&env).is_some() {
             panic_with_error!(&env, PoolError::AlreadyInitialized);
@@ -89,12 +91,17 @@ impl PoolContract {
             || admin == escrow_contract
             || admin == usdc_asset
             || admin == registry_contract
+            || admin == treasury_address
             || invoice_contract == escrow_contract
             || invoice_contract == usdc_asset
             || invoice_contract == registry_contract
+            || invoice_contract == treasury_address
             || escrow_contract == usdc_asset
             || escrow_contract == registry_contract
+            || escrow_contract == treasury_address
             || usdc_asset == registry_contract
+            || usdc_asset == treasury_address
+            || registry_contract == treasury_address
         {
             panic_with_error!(&env, PoolError::InvalidConfiguration);
         }
@@ -141,6 +148,12 @@ impl PoolContract {
         env.storage()
             .instance()
             .set(&DataKey::MaxUtilizationBps, &DEFAULT_MAX_UTILIZATION_BPS);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeBps, &0u32); // Default to 0% fee
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryAddress, &treasury_address);
         env.storage()
             .instance()
             .set(&DataKey::TotalLossRealised, &0u128);
@@ -197,6 +210,50 @@ impl PoolContract {
     /// ```
     pub fn get_admin(env: Env) -> Address {
         Self::admin(&env).expect("pool is not initialized: admin missing")
+    }
+
+    /// Returns the protocol fee in basis points.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// * Panics if the contract has not been initialized (missing `FeeBps`).
+    ///
+    /// # Returns
+    /// * `u32` - The protocol fee in basis points.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let fee_bps = client.get_fee_bps();
+    /// ```
+    pub fn get_fee_bps(env: Env) -> u32 {
+        Self::fee_bps(&env).expect("pool is not initialized: fee bps missing")
+    }
+
+    /// Returns the treasury address for protocol fee distribution.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// * Panics if the contract has not been initialized (missing `TreasuryAddress`).
+    ///
+    /// # Returns
+    /// * `Address` - The treasury address.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let treasury = client.get_treasury_address();
+    /// ```
+    pub fn get_treasury_address(env: Env) -> Address {
+        Self::treasury_address(&env).expect("pool is not initialized: treasury address missing")
     }
 
     /// Returns the invoice contract address configured for the pool.
@@ -1065,6 +1122,71 @@ impl PoolContract {
         true
     }
 
+    /// Updates the protocol fee in basis points.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `admin` - The admin address for this contract.
+    /// * `new_fee_bps` - The new protocol fee, in basis points
+    ///   (`10_000` = 100%).
+    ///
+    /// # Auth
+    /// Requires authorization from `admin` (via `admin.require_auth()`).
+    ///
+    /// # Panics
+    /// * `InvalidAmount` if `new_fee_bps` exceeds `10_000`.
+    ///
+    /// # Returns
+    /// * `bool` - `true` when the fee is updated.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.set_fee_bps(&admin, &500); // 5%
+    /// ```
+    pub fn set_fee_bps(env: Env, admin: Address, new_fee_bps: u32) -> bool {
+        admin.require_auth();
+        if new_fee_bps > 10000 {
+            panic_with_error!(&env, PoolError::InvalidAmount);
+        }
+        let _old_fee_bps = Self::fee_bps(&env).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeBps, &new_fee_bps);
+        // Note: No event emitted for fee changes to keep the interface simple
+        // Events can be added later if needed for indexing
+        Self::extend_instance_ttl(&env);
+        true
+    }
+
+    /// Updates the treasury address for protocol fee distribution.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `admin` - The admin address for this contract.
+    /// * `treasury` - The new treasury address.
+    ///
+    /// # Auth
+    /// Requires authorization from `admin` (via `admin.require_auth()`).
+    ///
+    /// # Returns
+    /// * `bool` - `true` when the treasury address is updated.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.set_treasury_address(&admin, &treasury_address);
+    /// ```
+    pub fn set_treasury_address(env: Env, admin: Address, treasury: Address) -> bool {
+        admin.require_auth();
+        let _old_treasury = Self::treasury_address(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryAddress, &treasury);
+        // Note: No event emitted for treasury address changes to keep the interface simple
+        // Events can be added later if needed for indexing
+        Self::extend_instance_ttl(&env);
+        true
+    }
+
     fn utilization_bps_or_panic(env: &Env, total_funded: u128, total_deposits: u128) -> u32 {
         if total_deposits == 0 {
             return 0;
@@ -1107,6 +1229,14 @@ impl PoolContract {
             .instance()
             .get(&DataKey::RegistryContract)
             .expect("pool is not initialized: registry contract missing")
+    }
+
+    fn fee_bps(env: &Env) -> Option<u32> {
+        env.storage().instance().get(&DataKey::FeeBps)
+    }
+
+    fn treasury_address(env: &Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::TreasuryAddress)
     }
 
     fn totals(env: &Env) -> PoolTotals {
@@ -1187,6 +1317,19 @@ impl PoolContract {
         }
 
         let yield_amount = amount - funded_amount - refund;
+
+        // Calculate protocol fee split
+        let fee_bps = Self::fee_bps(env).unwrap_or(0);
+        let protocol_cut = if fee_bps > 0 {
+            yield_amount
+                .checked_mul(fee_bps as u128)
+                .unwrap_or_else(|| panic_with_error!(env, PoolError::Overflow))
+                / 10_000
+        } else {
+            0
+        };
+        let lp_yield = yield_amount - protocol_cut;
+
         let totals = Self::totals(env);
         let total_deposits = totals.deposits;
         let total_funded = totals.funded;
@@ -1195,13 +1338,29 @@ impl PoolContract {
         let new_total_funded = total_funded
             .checked_sub(funded_amount)
             .unwrap_or_else(|| panic_with_error!(env, PoolError::Overflow));
+
+        // Add LP yield (not full yield) to TotalDeposits and TotalYieldDistributed
         env.storage()
             .instance()
-            .set(&DataKey::TotalDeposits, &(total_deposits + yield_amount));
+            .set(&DataKey::TotalDeposits, &(total_deposits + lp_yield));
         env.storage().instance().set(
             &DataKey::TotalYieldDistributed,
-            &(total_yield + yield_amount),
+            &(total_yield + lp_yield),
         );
+
+        // Transfer protocol cut to treasury address if > 0
+        if protocol_cut > 0 {
+            let treasury_address = Self::treasury_address(env)
+                .expect("treasury address not set");
+            let usdc_id = Self::usdc(env);
+            let usdc = token::Client::new(&env, &usdc_id);
+            usdc.transfer(
+                &env.current_contract_address(),
+                &treasury_address,
+                &(protocol_cut as i128),
+            );
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::TotalFunded, &new_total_funded);
@@ -1216,7 +1375,8 @@ impl PoolContract {
 
         env.storage().persistent().remove(&funded_key);
 
-        events::repayment_received(env, invoice_id, amount, yield_amount);
+        // Update event to include protocol cut information
+        events::repayment_received(env, invoice_id, amount, lp_yield, protocol_cut);
         Self::extend_instance_ttl(env);
     }
 
