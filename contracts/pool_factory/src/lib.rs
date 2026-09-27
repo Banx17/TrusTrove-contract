@@ -246,7 +246,7 @@ impl PoolFactoryContract {
                 let stats: PoolStats = env.invoke_contract(
                     &pool_address,
                     &Symbol::new(&env, "get_stats"),
-                    Vec::new(&env)
+                    Vec::new(&env),
                 );
                 aggregate.push_back((pool_address, stats));
             }

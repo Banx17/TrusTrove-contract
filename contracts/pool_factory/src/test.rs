@@ -579,43 +579,49 @@ pub struct TKey(Address);
 #[test]
 fn test_pool_instances_do_not_cross_contaminate() {
     let te = setup();
-    
+
     // Register two actual mock tokens
     let asset1 = te.env.register_contract(None, MockToken);
     let asset2 = te.env.register_contract(None, MockToken);
-    
+
     let pool1 = register_asset(&te, &asset1);
     let pool2 = register_asset(&te, &asset2);
-    
+
     let lp1 = Address::generate(&te.env);
     let lp2 = Address::generate(&te.env);
-    
+
     // Give LP1 and LP2 some mock tokens
     let lp1_bal_key = TKey(lp1.clone());
     let lp2_bal_key = TKey(lp2.clone());
     te.env.as_contract(&asset1, || {
-        te.env.storage().persistent().set(&lp1_bal_key, &1_000_000_000_i128);
+        te.env
+            .storage()
+            .persistent()
+            .set(&lp1_bal_key, &1_000_000_000_i128);
     });
     te.env.as_contract(&asset2, || {
-        te.env.storage().persistent().set(&lp2_bal_key, &2_000_000_000_i128);
+        te.env
+            .storage()
+            .persistent()
+            .set(&lp2_bal_key, &2_000_000_000_i128);
     });
-    
+
     let pool1_client = PoolContractClient::new(&te.env, &pool1);
     let pool2_client = PoolContractClient::new(&te.env, &pool2);
-    
+
     // LP1 deposits 20_000_000 into pool1
     pool1_client.deposit(&lp1, &20_000_000);
-    
+
     // LP2 deposits 30_000_000 into pool2
     pool2_client.deposit(&lp2, &30_000_000);
-    
+
     let stats1 = pool1_client.get_stats();
     let stats2 = pool2_client.get_stats();
-    
+
     // Verify no cross contamination
     assert_eq!(stats1.total_deposits, 20_000_000);
     assert_eq!(stats1.total_shares, 20_000_000);
-    
+
     assert_eq!(stats2.total_deposits, 30_000_000);
     assert_eq!(stats2.total_shares, 30_000_000);
 }
@@ -623,42 +629,48 @@ fn test_pool_instances_do_not_cross_contaminate() {
 #[test]
 fn test_get_aggregate_stats() {
     let te = setup();
-    
+
     let asset1 = te.env.register_contract(None, MockToken);
     let asset2 = te.env.register_contract(None, MockToken);
-    
+
     let pool1 = register_asset(&te, &asset1);
     let pool2 = register_asset(&te, &asset2);
-    
+
     let lp1 = Address::generate(&te.env);
     let lp2 = Address::generate(&te.env);
-    
+
     let lp1_bal_key = TKey(lp1.clone());
     let lp2_bal_key = TKey(lp2.clone());
     te.env.as_contract(&asset1, || {
-        te.env.storage().persistent().set(&lp1_bal_key, &1_000_000_000_i128);
+        te.env
+            .storage()
+            .persistent()
+            .set(&lp1_bal_key, &1_000_000_000_i128);
     });
     te.env.as_contract(&asset2, || {
-        te.env.storage().persistent().set(&lp2_bal_key, &2_000_000_000_i128);
+        te.env
+            .storage()
+            .persistent()
+            .set(&lp2_bal_key, &2_000_000_000_i128);
     });
-    
+
     let pool1_client = PoolContractClient::new(&te.env, &pool1);
     let pool2_client = PoolContractClient::new(&te.env, &pool2);
-    
+
     pool1_client.deposit(&lp1, &20_000_000);
     pool2_client.deposit(&lp2, &30_000_000);
-    
+
     let aggregate = te.factory.get_aggregate_stats();
     assert_eq!(aggregate.len(), 2);
-    
+
     // The order depends on listing order, which is insertion order.
     // pool1 was inserted first.
     let (addr1, stat1) = aggregate.get(0).unwrap();
     let (addr2, stat2) = aggregate.get(1).unwrap();
-    
+
     assert_eq!(addr1, pool1);
     assert_eq!(stat1.total_deposits, 20_000_000);
-    
+
     assert_eq!(addr2, pool2);
     assert_eq!(stat2.total_deposits, 30_000_000);
 }
