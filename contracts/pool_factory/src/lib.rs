@@ -1,11 +1,13 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, vec, xdr::ToXdr, Address, BytesN, Env, Symbol, Vec,
+    contract, contractimpl, panic_with_error, vec, xdr::ToXdr, Address, BytesN, Env, IntoVal,
+    Symbol, Vec,
 };
 
 mod constants;
 mod errors;
+mod events;
 mod types;
 
 #[cfg(test)]
@@ -68,8 +70,7 @@ impl PoolFactoryContract {
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `asset` - The asset the new pool instance custodies. Passed to the
-    ///   pool as its USDC asset, which is the pool's single supported asset
-    ///   until the asset-generalization rename lands.
+    ///   pool as its `funding_asset`, the single asset that instance supports.
     /// * `pool_wasm_hash` - Hash of the uploaded pool Wasm to deploy. Must
     ///   already be present in the ledger.
     /// * `invoice_contract` - The invoice contract the new pool funds invoices
@@ -153,6 +154,7 @@ impl PoolFactoryContract {
         // Recorded last, so a lookup can never observe a pool that has been
         // deployed but not yet initialized.
         Self::record_pool(&env, &asset, &pool_address);
+        events::pool_instance_created(&env, &asset, &pool_address);
         pool_address
     }
 
@@ -308,8 +310,8 @@ impl PoolFactoryContract {
     /// Initializes a freshly deployed pool instance.
     ///
     /// Args are passed positionally to `pool::initialize`, whose signature is
-    /// `(admin, invoice_contract, escrow_contract, usdc_asset,
-    /// registry_contract, treasury)`.
+    /// `(admin, invoice_contract, escrow_contract, funding_asset,
+    /// registry_contract, treasury, min_initial_deposit)`.
     fn initialize_pool(
         env: &Env,
         admin: &Address,
@@ -334,6 +336,7 @@ impl PoolFactoryContract {
             asset.to_val(),
             registry_contract.to_val(),
             admin.to_val(),
+            DEFAULT_MIN_INITIAL_DEPOSIT.into_val(env),
         ];
         env.invoke_contract::<()>(pool_address, &Symbol::new(env, POOL_INITIALIZE), args);
     }

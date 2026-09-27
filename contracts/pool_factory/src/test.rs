@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    Address, Bytes, BytesN, Env, Symbol, TryFromVal,
+};
 use trusttrove_escrow::EscrowContractClient;
 use trusttrove_invoice::InvoiceContractClient;
 use trusttrove_pool::PoolContractClient;
@@ -235,6 +238,27 @@ fn test_register_asset_deploys_and_initializes_pool() {
         })
         .expect("pool instance should record a registry contract");
     assert_eq!(registry, te.registry_id);
+}
+
+#[test]
+fn test_register_asset_emits_pool_instance_created_event() {
+    let te = setup();
+
+    let pool_address = register_asset(&te, &te.asset.clone());
+
+    let events = te.env.events().all();
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.factory_id);
+    assert_eq!(topics.len(), 2);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "pool_instance_created")
+    );
+    assert_eq!(
+        Address::try_from_val(&te.env, &topics.get(1).unwrap()).unwrap(),
+        te.asset
+    );
+    assert_eq!(Address::try_from_val(&te.env, &data).unwrap(), pool_address);
 }
 
 #[test]

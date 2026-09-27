@@ -13,7 +13,8 @@ use soroban_sdk::{
 };
 
 use crate::{
-    DataKey, PoolContract, PoolContractClient, MIN_INITIAL_DEPOSIT, TTL_EXTEND_TO, TTL_THRESHOLD,
+    DataKey, PoolContract, PoolContractClient, DEFAULT_MIN_INITIAL_DEPOSIT, TTL_EXTEND_TO,
+    TTL_THRESHOLD,
 };
 
 use trusttrove_escrow::{EscrowContract as RealEscrow, EscrowContractClient as RealEscrowClient};
@@ -333,6 +334,7 @@ fn setup() -> TestEnv {
         &usdc_id,
         &registry_id,
         &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
 
     invoice.add_supported_asset(&usdc_id);
@@ -559,27 +561,107 @@ fn test_no_deposit_ever_receives_zero_shares() {
     }
 }
 
-// The initial deposit in an empty pool must be at least MIN_INITIAL_DEPOSIT (1 USDC)
+// The initial deposit in an empty pool must be at least DEFAULT_MIN_INITIAL_DEPOSIT (1 USDC)
 // to prevent share-price griefing attacks.
 #[test]
 #[should_panic(expected = "Error(Contract, #4)")]
 fn test_first_deposit_below_minimum_panics_invalid_amount() {
     let te = setup();
-    te.pool.deposit(&te.lp, &(MIN_INITIAL_DEPOSIT - 1));
+    te.pool.deposit(&te.lp, &(DEFAULT_MIN_INITIAL_DEPOSIT - 1));
 }
 
 #[test]
 fn test_first_deposit_at_minimum_succeeds() {
     let te = setup();
-    let shares = te.pool.deposit(&te.lp, &MIN_INITIAL_DEPOSIT);
-    assert_eq!(shares, MIN_INITIAL_DEPOSIT);
+    let shares = te.pool.deposit(&te.lp, &DEFAULT_MIN_INITIAL_DEPOSIT);
+    assert_eq!(shares, DEFAULT_MIN_INITIAL_DEPOSIT);
 }
 
 #[test]
 fn test_first_deposit_above_minimum_succeeds() {
     let te = setup();
-    let shares = te.pool.deposit(&te.lp, &(MIN_INITIAL_DEPOSIT + 10_000_000));
-    assert_eq!(shares, MIN_INITIAL_DEPOSIT + 10_000_000);
+    let shares = te
+        .pool
+        .deposit(&te.lp, &(DEFAULT_MIN_INITIAL_DEPOSIT + 10_000_000));
+    assert_eq!(shares, DEFAULT_MIN_INITIAL_DEPOSIT + 10_000_000);
+}
+
+// Two independently initialized pool instances, each configured with its own
+// `min_initial_deposit` at `initialize` time, must each enforce their own
+// floor rather than sharing a single hardcoded constant (issue #744).
+#[test]
+fn test_two_pool_instances_enforce_their_own_configured_minimum() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let lp = Address::generate(&env);
+    let registry_id = env.register_contract(None, MockRegistry);
+
+    // A low-decimals asset pool, configured with a small minimum.
+    let asset_a = env.register_contract(None, MockToken);
+    let low_min: u128 = 100;
+    let pool_a_id = build_pool_with_min_deposit(&env, &admin, &asset_a, &registry_id, low_min);
+    let pool_a = PoolContractClient::new(&env, &pool_a_id);
+
+    // A high-decimals asset pool, configured with the original USDC-scale minimum.
+    let asset_b = env.register_contract(None, MockToken);
+    let high_min: u128 = DEFAULT_MIN_INITIAL_DEPOSIT;
+    let pool_b_id = build_pool_with_min_deposit(&env, &admin, &asset_b, &registry_id, high_min);
+    let pool_b = PoolContractClient::new(&env, &pool_b_id);
+
+    fund_lp(&env, &asset_a, &lp);
+    fund_lp(&env, &asset_b, &lp);
+
+    // Pool A's low minimum accepts a deposit that pool B would reject.
+    assert!(pool_a.try_deposit(&lp, &low_min).is_ok());
+
+    // A second, fresh instance for asset_b so the below-minimum deposit
+    // exercises the empty-pool branch of the check.
+    let pool_b_fresh_id =
+        build_pool_with_min_deposit(&env, &admin, &asset_b, &registry_id, high_min);
+    let pool_b_fresh = PoolContractClient::new(&env, &pool_b_fresh_id);
+    fund_lp(&env, &asset_b, &lp);
+    assert!(pool_b_fresh.try_deposit(&lp, &low_min).is_err());
+    assert!(pool_b.try_deposit(&lp, &high_min).is_ok());
+}
+
+/// Deploys and initializes a fresh pool instance funding `asset`, configured
+/// with `min_initial_deposit`.
+fn build_pool_with_min_deposit(
+    env: &Env,
+    admin: &Address,
+    asset: &Address,
+    registry_id: &Address,
+    min_initial_deposit: u128,
+) -> Address {
+    let invoice_id = env.register_contract(None, RealInvoice);
+    RealInvoiceClient::new(env, &invoice_id).initialize(admin, registry_id);
+
+    let pool_id = env.register_contract(None, PoolContract);
+    let escrow_id = env.register_contract(None, RealEscrow);
+    RealEscrowClient::new(env, &escrow_id).initialize(admin, &pool_id, asset);
+
+    let pool = PoolContractClient::new(env, &pool_id);
+    pool.initialize(
+        admin,
+        &invoice_id,
+        &escrow_id,
+        asset,
+        registry_id,
+        admin,
+        &min_initial_deposit,
+    );
+    pool_id
+}
+
+/// Credits `lp` with a large token balance on `asset`'s `MockToken`.
+fn fund_lp(env: &Env, asset: &Address, lp: &Address) {
+    env.as_contract(asset, || {
+        env.storage()
+            .persistent()
+            .set(&TKey(lp.clone()), &100_000_000_000_000i128);
+    });
 }
 
 // ============== WITHDRAW TESTS ==============
@@ -1169,6 +1251,7 @@ fn test_default_max_utilization_in_stats() {
         &usdc_id,
         &registry_id,
         &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
     let stats = pool.get_stats();
     assert_eq!(stats.max_utilization_bps, 8500);
@@ -1221,12 +1304,22 @@ fn test_get_usdc_asset_returns_configured_asset() {
     assert_eq!(te.pool.get_usdc_asset(), te.usdc_id);
 }
 
-// get_usdc_asset delegates to Self::usdc(), whose instance read is
-// `.expect()`-guarded ("pool is not initialized: USDC asset missing") rather
+// get_funding_asset is the new, asset-generic name; get_usdc_asset (above) is
+// kept only as a deprecated alias for pre-factory integrators, and both must
+// return the same value (issue #743).
+#[test]
+fn test_get_funding_asset_returns_configured_asset() {
+    let te = setup();
+    assert_eq!(te.pool.get_funding_asset(), te.usdc_id);
+    assert_eq!(te.pool.get_funding_asset(), te.pool.get_usdc_asset());
+}
+
+// get_usdc_asset delegates to Self::funding_asset(), whose instance read is
+// `.expect()`-guarded ("pool is not initialized: funding asset missing") rather
 // than a typed PoolError. This test documents that untyped panic when the
 // pool has never been initialized (issues #591).
 #[test]
-#[should_panic(expected = "pool is not initialized: USDC asset missing")]
+#[should_panic(expected = "pool is not initialized: funding asset missing")]
 fn test_get_usdc_asset_panics_when_uninitialized() {
     let env = Env::default();
     let pool_id = env.register_contract(None, PoolContract);
@@ -2709,7 +2802,13 @@ fn test_initialize_rejects_each_pairwise_address_collision() {
         let pool_id = env.register_contract(None, PoolContract);
         let pool = PoolContractClient::new(&env, &pool_id);
         let res = pool.try_initialize(
-            &addrs[0], &addrs[1], &addrs[2], &addrs[3], &addrs[4], &addrs[0],
+            &addrs[0],
+            &addrs[1],
+            &addrs[2],
+            &addrs[3],
+            &addrs[4],
+            &addrs[0],
+            &DEFAULT_MIN_INITIAL_DEPOSIT,
         );
         assert!(
             res.is_err(),
@@ -2801,6 +2900,7 @@ fn test_deposit_extends_instance_ttl_when_below_threshold() {
         &usdc_id,
         &registry_id,
         &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
 
     // After initialize: TTL should be bumped to ~TTL_EXTEND_TO.
@@ -2959,6 +3059,7 @@ fn test_double_initialize_panics() {
                 usdc_id.clone(),
                 registry_id.clone(),
                 admin.clone(),
+                DEFAULT_MIN_INITIAL_DEPOSIT,
             )
                 .into_val(&env),
             sub_invokes: &[],
@@ -2971,6 +3072,7 @@ fn test_double_initialize_panics() {
         &usdc_id,
         &registry_id,
         &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
 
     // Verify storage state after first initialize
@@ -2989,8 +3091,12 @@ fn test_double_initialize_panics() {
             .get(&DataKey::EscrowContract)
             .unwrap();
         assert_eq!(stored_escrow, escrow_id);
-        let stored_usdc: Address = env.storage().instance().get(&DataKey::UsdcAsset).unwrap();
-        assert_eq!(stored_usdc, usdc_id);
+        let stored_funding_asset: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingAsset)
+            .unwrap();
+        assert_eq!(stored_funding_asset, usdc_id);
         let stored_fee: u32 = env
             .storage()
             .instance()
@@ -3013,6 +3119,7 @@ fn test_double_initialize_panics() {
         &usdc_id,
         &registry_id,
         &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
 }
 
@@ -3165,6 +3272,7 @@ mod real_registry_integration {
             &usdc_id,
             &registry_id,
             &admin,
+            &DEFAULT_MIN_INITIAL_DEPOSIT,
         );
 
         invoice.add_supported_asset(&usdc_id);
@@ -3348,6 +3456,7 @@ fn test_initialize_emits_pool_initialized_event() {
         &usdc_id,
         &registry_id,
         &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
 
     let events = env.events().all();
@@ -3433,12 +3542,12 @@ fn test_get_escrow_contract_panics_when_uninitialized() {
 
 // ============== CONSTANTS LOCATION TESTS (issue #592) ==============
 
-// MIN_INITIAL_DEPOSIT and DEFAULT_MAX_UTILIZATION_BPS must be importable from
+// DEFAULT_MIN_INITIAL_DEPOSIT and DEFAULT_MAX_UTILIZATION_BPS must be importable from
 // `constants` (re-exported via `pub use constants::*` in lib.rs) and hold the
 // canonical values.
 #[test]
 fn test_min_initial_deposit_constant_value() {
-    assert_eq!(MIN_INITIAL_DEPOSIT, 10_000_000);
+    assert_eq!(DEFAULT_MIN_INITIAL_DEPOSIT, 10_000_000);
 }
 
 #[test]
@@ -3604,7 +3713,7 @@ fn prop_any_valid_initial_deposit_issues_shares_equal_to_amount() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
         .run(
-            &(MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
+            &(DEFAULT_MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
             |deposit_amount| {
                 let te = setup();
                 let shares = te.pool.deposit(&te.lp, &deposit_amount);
@@ -3622,13 +3731,13 @@ fn prop_any_valid_initial_deposit_issues_shares_equal_to_amount() {
         .unwrap();
 }
 
-// A deposit below MIN_INITIAL_DEPOSIT on an empty pool must always be rejected
+// A deposit below DEFAULT_MIN_INITIAL_DEPOSIT on an empty pool must always be rejected
 // with InvalidAmount (#4), regardless of the exact value.
 #[test]
 fn prop_initial_deposit_below_minimum_always_rejected() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
-        .run(&(1u128..MIN_INITIAL_DEPOSIT), |deposit_amount| {
+        .run(&(1u128..DEFAULT_MIN_INITIAL_DEPOSIT), |deposit_amount| {
             let te = setup();
             let result = te.pool.try_deposit(&te.lp, &deposit_amount);
             prop_assert!(
@@ -3647,7 +3756,7 @@ fn prop_full_withdrawal_returns_exact_deposit_with_no_yield() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
         .run(
-            &(MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
+            &(DEFAULT_MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
             |deposit_amount| {
                 let te = setup();
                 let shares = te.pool.deposit(&te.lp, &deposit_amount);
@@ -3673,7 +3782,7 @@ fn prop_full_withdrawal_clears_lp_position() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
         .run(
-            &(MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
+            &(DEFAULT_MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
             |deposit_amount| {
                 let te = setup();
                 let shares = te.pool.deposit(&te.lp, &deposit_amount);
@@ -4049,6 +4158,7 @@ fn test_protocol_fee_storage_initialized_with_custom_treasury() {
         &usdc_id,
         &registry_id,
         &custom_treasury,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
     );
 
     assert_eq!(pool.get_protocol_fee_bps(), 0);

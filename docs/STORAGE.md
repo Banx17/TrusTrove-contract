@@ -250,7 +250,7 @@ EscrowEvent {
 | `Admin` | `Address` | Contract admin | `initialize()` |
 | `InvoiceContract` | `Address` | Invoice contract address | `initialize()` |
 | `EscrowContract` | `Address` | Escrow contract address | `initialize()` |
-| `UsdcAsset` | `Address` | USDC token contract address | `initialize()` |
+| `FundingAsset` | `Address` | Asset this pool instance funds invoices with | `initialize()` |
 | `TotalShares` | `u128` | Total LP shares outstanding | `initialize() = 0` |
 | `TotalDeposits` | `u128` | Total USDC principal deposited | `initialize() = 0` |
 | `TotalFunded` | `u128` | Total USDC deployed to invoices | `initialize() = 0` |
@@ -259,6 +259,7 @@ EscrowEvent {
 | `MaxUtilizationBps` | `u32` | Max utilization cap (bps) | `initialize() = 8500` |
 | `ProtocolFeeBps` | `u32` | Protocol fee in basis points (max 2000 bps = 20%) | `initialize() = 0` |
 | `TreasuryAddress` | `Address` | Protocol treasury destination for fee cuts | `initialize() = treasury (may equal admin)` |
+| `MinInitialDeposit` | `u128` | Minimum first deposit an empty pool accepts, in `FundingAsset` stroops | `initialize()` |
 
 ### Persistent Storage
 

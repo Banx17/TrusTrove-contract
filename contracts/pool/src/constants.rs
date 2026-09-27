@@ -8,10 +8,18 @@
 pub use trusttrove_ttl::EXTEND_TO as TTL_EXTEND_TO;
 pub use trusttrove_ttl::THRESHOLD as TTL_THRESHOLD;
 
-/// Minimum initial deposit floor (1 USDC = 10_000_000 stroops).
-/// Prevents share-price griefing by requiring the initial deposit in an empty pool
-/// to be at least this floor.
-pub const MIN_INITIAL_DEPOSIT: u128 = 10_000_000;
+/// Default minimum initial deposit floor, used when `initialize` is not given
+/// an explicit `min_initial_deposit` and as the fallback for pool instances
+/// that predate the admin-configurable minimum. Prevents share-price griefing
+/// by requiring the initial deposit in an empty pool to be at least this
+/// floor.
+///
+/// This value assumes 7-decimal stroops (1 unit = 10_000_000 stroops), which
+/// only holds for the pool's originally supported asset. Under the factory
+/// model each instance funds a different asset, so a deploy for an asset with
+/// different decimals should pass its own `min_initial_deposit` to
+/// `initialize` rather than rely on this default.
+pub const DEFAULT_MIN_INITIAL_DEPOSIT: u128 = 10_000_000;
 
 /// Maximum protocol fee in basis points (2000 bps = 20%).
 /// Prevents excessive fee extraction by capping the protocol cut at 20% of yield spread,
