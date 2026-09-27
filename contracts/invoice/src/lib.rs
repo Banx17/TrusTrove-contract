@@ -375,6 +375,13 @@ impl InvoiceContract {
     /// # Returns
     /// * `()` - No value is returned.
     ///
+    /// # Pool Factory Integration
+    /// Note that under the `pool_factory` model, a supported asset listed here
+    /// should also be registered via `pool_factory::register_asset` (or
+    /// `register_existing_pool`). If an invoice is listed in an asset that has
+    /// no corresponding pool instance, `fund_invoice` will not be reachable
+    /// end-to-end for that invoice.
+    ///
     /// # Example
     /// ```ignore
     /// client.add_supported_asset(&usdc);

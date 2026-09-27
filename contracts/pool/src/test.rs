@@ -4164,3 +4164,28 @@ fn test_protocol_fee_storage_initialized_with_custom_treasury() {
     assert_eq!(pool.get_protocol_fee_bps(), 0);
     assert_eq!(pool.get_treasury(), custom_treasury);
 }
+
+#[test]
+fn test_sep41_balance_and_total_supply() {
+    let te = setup();
+    let client = PoolContractClient::new(&te.env, &te.pool_id);
+
+    let unknown_lp = Address::generate(&te.env);
+
+    // Check total supply
+    let initial_supply = client.total_supply();
+    assert_eq!(initial_supply, 0);
+
+    // Check unknown LP balance
+    let unknown_balance = client.balance(&unknown_lp);
+    assert_eq!(unknown_balance, 0);
+
+    // Check known LP balance after deposit
+    client.deposit(&te.lp, &100_000_000);
+
+    let supply_after = client.total_supply();
+    assert_eq!(supply_after, 100_000_000);
+
+    let lp_balance = client.balance(&te.lp);
+    assert_eq!(lp_balance, 100_000_000);
+}

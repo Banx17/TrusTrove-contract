@@ -961,6 +961,39 @@ impl PoolContract {
         true
     }
 
+    /// Returns the LP share balance for a given address (SEP-41 interface).
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `id` - The address to query the balance for.
+    ///
+    /// # Returns
+    /// * `i128` - The share balance cast to `i128`.
+    pub fn balance(env: Env, id: Address) -> i128 {
+        let shares: u128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LPShares(id))
+            .unwrap_or(0);
+        shares as i128
+    }
+
+    /// Returns the total supply of LP shares (SEP-41 interface).
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Returns
+    /// * `i128` - The total supply of shares cast to `i128`.
+    pub fn total_supply(env: Env) -> i128 {
+        let total: u128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalShares)
+            .unwrap_or(0);
+        total as i128
+    }
+
     /// Returns current pool statistics and utilization metrics.
     ///
     /// # Arguments

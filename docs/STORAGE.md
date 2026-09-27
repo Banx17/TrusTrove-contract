@@ -105,6 +105,8 @@ Profile {
 | `PoolContract` | `Address` | Pool contract address | `set_pool_contract()` |
 | `Counter` | `u64` | Monotonically increasing invoice counter | `initialize()`, incremented on `create()` |
 | `ExpiryWindow` | `u64` | Listing expiry window in seconds (default `604800`) | `set_expiry_window()` |
+| `SupportedAssetCount` | `u32` | Number of supported funding assets | `add_supported_asset()` |
+| `SupportedAsset(Address)` | `bool` | True if the asset is allowed for new invoices. *Note: Under the `pool_factory` model, an asset listed here should also be registered via `pool_factory::register_asset` to ensure `fund_invoice` is reachable.* | `add_supported_asset()` |
 
 ### Persistent Storage
 
@@ -301,6 +303,24 @@ In practice most pools will have:
 - 1 key per funded invoice (removed on repayment/default)
 
 ---
+
+## Contract: pool_factory
+
+### Instance Storage
+
+| DataKey | Type | Description | Set During |
+|---------|------|-------------|------------|
+| `Admin` | `Address` | Contract admin | `initialize()` |
+| `AssetCount` | `u32` | Number of registered assets | `register_asset()` / `register_existing_pool()` |
+| `AssetIndex(u32)` | `Address` | Ordered index of registered assets | `register_asset()` / `register_existing_pool()` |
+| `PoolForAsset(Address)` | `Address` | The pool contract deployed/tracked for an asset | `register_asset()` / `register_existing_pool()` |
+
+### Storage Key Count
+
+**Approximately 2 + (2 × number_of_assets).**
+
+Each registered asset requires two keys: one for its position in the list (`AssetIndex`) and one mapping its address to a pool (`PoolForAsset`).
+
 
 ## Gas / Budget Estimates
 
