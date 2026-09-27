@@ -233,6 +233,7 @@ impl PoolContract {
     pub fn get_fee_bps(env: Env) -> u32 {
         Self::fee_bps(&env).expect("pool is not initialized: fee bps missing")
     }
+    }
 
     /// Returns the treasury address for protocol fee distribution.
     ///
@@ -1421,4 +1422,3 @@ impl PoolContract {
             .extend_ttl(&lp_shares_key, TTL_THRESHOLD, TTL_EXTEND_TO);
         remaining_shares
     }
-}
