@@ -962,6 +962,40 @@ impl PoolContract {
     /// ```ignore
     /// let stats = client.get_stats();
     /// ```
+
+    /// Returns the LP share balance for a given address (SEP-41 interface).
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `id` - The address to query the balance for.
+    ///
+    /// # Returns
+    /// * `i128` - The share balance cast to `i128`.
+    pub fn balance(env: Env, id: Address) -> i128 {
+        let shares: u128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LPShares(id))
+            .unwrap_or(0);
+        shares as i128
+    }
+
+    /// Returns the total supply of LP shares (SEP-41 interface).
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Returns
+    /// * `i128` - The total supply of shares cast to `i128`.
+    pub fn total_supply(env: Env) -> i128 {
+        let total: u128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalShares)
+            .unwrap_or(0);
+        total as i128
+    }
+
     pub fn get_stats(env: Env) -> PoolStats {
         if Self::admin(&env).is_none() {
             panic_with_error!(&env, PoolError::NotInitialized);
