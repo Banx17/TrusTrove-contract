@@ -220,6 +220,40 @@ impl PoolFactoryContract {
         env.storage().instance().get(&DataKey::PoolForAsset(asset))
     }
 
+    /// Returns aggregated statistics across all registered pool instances.
+    ///
+    /// Iterates through all registered assets, queries each pool instance's
+    /// `get_stats`, and returns a vector pairing each asset's pool address
+    /// with its current `PoolStats`.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required (read-only view).
+    ///
+    /// # Returns
+    /// * `Vec<(Address, PoolStats)>` - A list of (Pool Address, PoolStats) tuples.
+    ///
+    /// # Cost
+    /// Resource consumption scales linearly with the number of registered assets,
+    /// as a cross-contract call is made for each instance.
+    pub fn get_aggregate_stats(env: Env) -> Vec<(Address, PoolStats)> {
+        let assets = Self::list_assets(env.clone());
+        let mut aggregate = Vec::new(&env);
+        for asset in assets {
+            if let Some(pool_address) = Self::get_pool_for_asset(env.clone(), asset) {
+                let stats: PoolStats = env.invoke_contract(
+                    &pool_address,
+                    &Symbol::new(&env, "get_stats"),
+                    Vec::new(&env)
+                );
+                aggregate.push_back((pool_address, stats));
+            }
+        }
+        aggregate
+    }
+
     /// Lists all registered assets.
     ///
     /// # Arguments

@@ -7,7 +7,8 @@
 
 
 <p align="center">
-  Four Soroban smart contracts powering the TrusTrove trade finance protocol on Stellar.
+  Soroban smart contracts powering the TrusTrove trade finance protocol on Stellar. 
+  The protocol uses a pool_factory + per-asset pool instance model, allowing independent liquidity pools per asset.
 </p> 
 
 
@@ -152,6 +153,10 @@ get_lp_position(address) → LPPosition
 
 ## Architecture & Fund Flow
 
+The protocol employs a `pool_factory` + per-asset pool instance model. The `pool_factory` handles deploying and tracking an independent `pool_contract` instance for each supported funding asset (e.g., USDC, XLM). This design isolates risk, ensuring that a shortfall in one asset pool cannot cross-contaminate another. 
+
+**Note**: This architecture explicitly supersedes closed issue #17's Option A/B question, resolved as Option B (parallel single-asset pools instead of a commingled multi-asset pool).
+
 ### Contract Interaction Map
 
 ```
@@ -167,17 +172,17 @@ get_lp_position(address) → LPPosition
                  │ mark_funded()      │ receive_repayment()
                  │ trigger_default()  │ handle_default()
           ┌──────▼───────┐    ┌───────▼──────────┐
-          │ pool_contract │    │  pool_contract   │
-          │  fund_invoice │    │  (repayment in)  │
-          └──────┬────────┘    └──────────────────┘
+          │ pool_contract │    │  pool_contract   │◄──(deployed by)── ┌───────────────┐
+          │  fund_invoice │    │  (repayment in)  │                  │ pool_factory  │
+          └──────┬────────┘    └──────────────────┘                  └───────────────┘
                  │ lock()
           ┌──────▼────────────┐
           │  escrow_contract  │
-          │  (USDC custody)   │
+          │  (Asset custody)  │
           └───────────────────┘
 ```
 
-`pool_contract` also calls `registry_contract.is_verified()` directly
+The `pool_contract` instances also call `registry_contract.is_verified()` directly
 (not shown above) as part of `fund_invoice`, re-checking the issuer and
 buyer before committing capital. See "Revocation is prospective, not
 retroactive" above.
