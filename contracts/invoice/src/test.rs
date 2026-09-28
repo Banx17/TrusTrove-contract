@@ -1452,6 +1452,77 @@ fn test_mark_funded_succeeds_with_matching_asset() {
     assert_eq!(inv.funding_pool, Some(pool));
 }
 
+// #553: mark_funded must only accept the configured pool contract. An
+// address that self-authorizes but isn't the one set via set_pool_contract
+// must be rejected (NotAuthorized, Contract #3), preventing arbitrary pool
+// hijacking.
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_mark_funded_fails_for_non_configured_pool() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let configured_pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&configured_pool);
+
+    // A different, self-authorizable address tries to hijack funding.
+    let impostor = mock_pool_with_asset(&env, &usdc);
+    client.mark_funded(&invoice_id, &impostor, &usdc, &DEFAULT_FUNDED_AMOUNT);
+}
+
+// #553: mark_funded from the pre-configured pool still succeeds.
+#[test]
+fn test_mark_funded_succeeds_for_configured_pool() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let result = client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+    assert!(result);
+    let inv = client.get(&invoice_id);
+    assert_eq!(inv.funding_pool, Some(pool));
+}
+
+// #554: mark_funded panics when funded_amount exceeds face_value.
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_mark_funded_fails_when_amount_exceeds_face_value() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    client.mark_funded(&invoice_id, &pool, &usdc, &(DEFAULT_FACE_VALUE + 1));
+}
+
+// #554: funded_amount == face_value is the boundary and must succeed.
+#[test]
+fn test_mark_funded_succeeds_when_amount_equals_face_value() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let result = client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FACE_VALUE);
+    assert!(result);
+    let inv = client.get(&invoice_id);
+    assert_eq!(inv.funded_amount, DEFAULT_FACE_VALUE);
+    assert_eq!(inv.funding_pool, Some(pool));
+}
+
 #[test]
 fn test_create_invoice_with_xlm_asset() {
     let (env, client, issuer, buyer, _, _usdc) = setup();
@@ -3212,4 +3283,162 @@ fn test_mark_funded_success_configured_pool() {
     let configured_pool = mock_pool_with_asset(&env, &usdc);
     client.set_pool_contract(&configured_pool);
     client.mark_funded(&invoice_id, &configured_pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+}
+
+#[test]
+fn test_repay_partial_leaves_status_and_updates_balance() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let face_value: u128 = 1_000_000_000;
+    let invoice_id = client.create(&issuer, &buyer, &face_value, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+    client.set_escrow_contract(&escrow);
+    client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+    client.mark_shipped(&invoice_id);
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+    assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Confirmed);
+
+    mint_tokens(&env, &usdc, &buyer, face_value as i128);
+
+    let partial_amount = 400_000_000u128;
+    let result = client.repay_partial(&invoice_id, &partial_amount);
+    assert!(result);
+
+    let inv = client.get(&invoice_id);
+    assert_eq!(inv.status, InvoiceStatus::Confirmed);
+    assert_eq!(inv.repaid_amount, partial_amount);
+    assert_eq!(inv.remaining_balance, face_value - partial_amount);
+    assert_eq!(
+        client.get_remaining_balance(&invoice_id),
+        face_value - partial_amount
+    );
+    assert_eq!(client.get_repaid_amount(&invoice_id), partial_amount);
+
+    let contract_id = client.address.clone();
+    let events = env.events().all();
+    let found = events.iter().any(|e| {
+        let (c, topics, _data) = e;
+        if c != contract_id {
+            return false;
+        }
+        let topic0: Symbol = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+        topic0 == Symbol::new(&env, "partial_repayment_received")
+    });
+    assert!(found);
+}
+
+#[test]
+fn test_repay_partial_multi_step_reaches_repaid() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let face_value: u128 = 1_000_000_000;
+    let invoice_id = client.create(&issuer, &buyer, &face_value, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+    client.set_escrow_contract(&escrow);
+    client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+    client.mark_shipped(&invoice_id);
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+
+    mint_tokens(&env, &usdc, &buyer, face_value as i128);
+
+    // Step 1: Repay 300M
+    client.repay_partial(&invoice_id, &300_000_000);
+    assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Confirmed);
+    assert_eq!(client.get_remaining_balance(&invoice_id), 700_000_000);
+
+    // Step 2: Repay 300M
+    client.repay_partial(&invoice_id, &300_000_000);
+    assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Confirmed);
+    assert_eq!(client.get_remaining_balance(&invoice_id), 400_000_000);
+
+    // Step 3: Repay remaining 400M
+    client.repay_partial(&invoice_id, &400_000_000);
+    let inv = client.get(&invoice_id);
+    assert_eq!(inv.status, InvoiceStatus::Repaid);
+    assert_eq!(inv.remaining_balance, 0);
+    assert_eq!(inv.repaid_amount, face_value);
+    assert!(inv.repaid_at.is_some());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_repay_partial_exceeds_balance_panics() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let face_value: u128 = 1_000_000_000;
+    let invoice_id = client.create(&issuer, &buyer, &face_value, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+    client.set_escrow_contract(&escrow);
+    client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+
+    mint_tokens(&env, &usdc, &buyer, face_value as i128 + 100);
+
+    client.repay_partial(&invoice_id, &(face_value + 1));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_repay_partial_zero_panics() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let face_value: u128 = 1_000_000_000;
+    let invoice_id = client.create(&issuer, &buyer, &face_value, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+    client.set_escrow_contract(&escrow);
+    client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+
+    client.repay_partial(&invoice_id, &0);
+}
+
+#[test]
+fn test_repay_early_reads_stored_funded_amount() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let face_value: u128 = 1_000_000_000;
+    let invoice_id = client.create(&issuer, &buyer, &face_value, &due_date, &usdc);
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &1000); // 10% discount
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+    client.set_escrow_contract(&escrow);
+
+    // Funded amount stored is 850M (different from 900M that discount_bps 10% would give)
+    let actual_funded = 850_000_000u128;
+    client.mark_funded(&invoice_id, &pool, &usdc, &actual_funded);
+    client.mark_shipped(&invoice_id);
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+
+    mint_tokens(&env, &usdc, &buyer, face_value as i128);
+
+    let result = client.repay_early(&invoice_id);
+    assert!(result);
+    let inv = client.get(&invoice_id);
+    assert_eq!(inv.status, InvoiceStatus::Repaid);
+    assert_eq!(inv.repaid_amount, face_value);
+    assert_eq!(inv.remaining_balance, 0);
 }

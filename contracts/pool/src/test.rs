@@ -9,11 +9,12 @@ use soroban_sdk::{
         MockAuth, MockAuthInvoke,
     },
     xdr::ToXdr,
-    Address, BytesN, Env, IntoVal, Symbol, TryFromVal,
+    Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal,
 };
 
 use crate::{
-    DataKey, PoolContract, PoolContractClient, MIN_INITIAL_DEPOSIT, TTL_EXTEND_TO, TTL_THRESHOLD,
+    DataKey, PoolContract, PoolContractClient, DEFAULT_MIN_INITIAL_DEPOSIT, DEFAULT_SHARE_DECIMALS,
+    TTL_EXTEND_TO, TTL_THRESHOLD,
 };
 
 use trusttrove_escrow::{EscrowContract as RealEscrow, EscrowContractClient as RealEscrowClient};
@@ -28,6 +29,12 @@ const DEFAULT_FACE_VALUE: u128 = 10_000_000_000;
 const DEFAULT_DISCOUNT_BPS: u32 = 200;
 const DEFAULT_FUNDED_AMOUNT: u128 =
     DEFAULT_FACE_VALUE * (10000 - DEFAULT_DISCOUNT_BPS as u128) / 10000;
+
+// SEP-41 share metadata every test initializer passes to `initialize` (issue
+// #757). Kept as constants so the assertions in the metadata tests and the
+// `initialize` call sites cannot drift apart.
+const TEST_SHARE_NAME: &str = "TrusTrove USDC Pool Shares";
+const TEST_SHARE_SYMBOL: &str = "TT-USDC";
 const DEFAULT_YIELD_AMOUNT: u128 = DEFAULT_FACE_VALUE * DEFAULT_DISCOUNT_BPS as u128 / 10000;
 
 // --------------- Mock Registry ---------------
@@ -326,8 +333,18 @@ fn setup() -> TestEnv {
     escrow.initialize(&admin, &pool_id, &usdc_id);
 
     let pool = PoolContractClient::new(&env, &pool_id);
-    let treasury_address = Address::generate(&env);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
 
     invoice.add_supported_asset(&usdc_id);
     invoice.add_supported_asset(&xlm_id);
@@ -553,27 +570,110 @@ fn test_no_deposit_ever_receives_zero_shares() {
     }
 }
 
-// The initial deposit in an empty pool must be at least MIN_INITIAL_DEPOSIT (1 USDC)
+// The initial deposit in an empty pool must be at least DEFAULT_MIN_INITIAL_DEPOSIT (1 USDC)
 // to prevent share-price griefing attacks.
 #[test]
 #[should_panic(expected = "Error(Contract, #4)")]
 fn test_first_deposit_below_minimum_panics_invalid_amount() {
     let te = setup();
-    te.pool.deposit(&te.lp, &(MIN_INITIAL_DEPOSIT - 1));
+    te.pool.deposit(&te.lp, &(DEFAULT_MIN_INITIAL_DEPOSIT - 1));
 }
 
 #[test]
 fn test_first_deposit_at_minimum_succeeds() {
     let te = setup();
-    let shares = te.pool.deposit(&te.lp, &MIN_INITIAL_DEPOSIT);
-    assert_eq!(shares, MIN_INITIAL_DEPOSIT);
+    let shares = te.pool.deposit(&te.lp, &DEFAULT_MIN_INITIAL_DEPOSIT);
+    assert_eq!(shares, DEFAULT_MIN_INITIAL_DEPOSIT);
 }
 
 #[test]
 fn test_first_deposit_above_minimum_succeeds() {
     let te = setup();
-    let shares = te.pool.deposit(&te.lp, &(MIN_INITIAL_DEPOSIT + 10_000_000));
-    assert_eq!(shares, MIN_INITIAL_DEPOSIT + 10_000_000);
+    let shares = te
+        .pool
+        .deposit(&te.lp, &(DEFAULT_MIN_INITIAL_DEPOSIT + 10_000_000));
+    assert_eq!(shares, DEFAULT_MIN_INITIAL_DEPOSIT + 10_000_000);
+}
+
+// Two independently initialized pool instances, each configured with its own
+// `min_initial_deposit` at `initialize` time, must each enforce their own
+// floor rather than sharing a single hardcoded constant (issue #744).
+#[test]
+fn test_two_pool_instances_enforce_their_own_configured_minimum() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let lp = Address::generate(&env);
+    let registry_id = env.register_contract(None, MockRegistry);
+
+    // A low-decimals asset pool, configured with a small minimum.
+    let asset_a = env.register_contract(None, MockToken);
+    let low_min: u128 = 100;
+    let pool_a_id = build_pool_with_min_deposit(&env, &admin, &asset_a, &registry_id, low_min);
+    let pool_a = PoolContractClient::new(&env, &pool_a_id);
+
+    // A high-decimals asset pool, configured with the original USDC-scale minimum.
+    let asset_b = env.register_contract(None, MockToken);
+    let high_min: u128 = DEFAULT_MIN_INITIAL_DEPOSIT;
+    let pool_b_id = build_pool_with_min_deposit(&env, &admin, &asset_b, &registry_id, high_min);
+    let pool_b = PoolContractClient::new(&env, &pool_b_id);
+
+    fund_lp(&env, &asset_a, &lp);
+    fund_lp(&env, &asset_b, &lp);
+
+    // Pool A's low minimum accepts a deposit that pool B would reject.
+    assert!(pool_a.try_deposit(&lp, &low_min).is_ok());
+
+    // A second, fresh instance for asset_b so the below-minimum deposit
+    // exercises the empty-pool branch of the check.
+    let pool_b_fresh_id =
+        build_pool_with_min_deposit(&env, &admin, &asset_b, &registry_id, high_min);
+    let pool_b_fresh = PoolContractClient::new(&env, &pool_b_fresh_id);
+    fund_lp(&env, &asset_b, &lp);
+    assert!(pool_b_fresh.try_deposit(&lp, &low_min).is_err());
+    assert!(pool_b.try_deposit(&lp, &high_min).is_ok());
+}
+
+/// Deploys and initializes a fresh pool instance funding `asset`, configured
+/// with `min_initial_deposit`.
+fn build_pool_with_min_deposit(
+    env: &Env,
+    admin: &Address,
+    asset: &Address,
+    registry_id: &Address,
+    min_initial_deposit: u128,
+) -> Address {
+    let invoice_id = env.register_contract(None, RealInvoice);
+    RealInvoiceClient::new(env, &invoice_id).initialize(admin, registry_id);
+
+    let pool_id = env.register_contract(None, PoolContract);
+    let escrow_id = env.register_contract(None, RealEscrow);
+    RealEscrowClient::new(env, &escrow_id).initialize(admin, &pool_id, asset);
+
+    let pool = PoolContractClient::new(env, &pool_id);
+    pool.initialize(
+        admin,
+        &invoice_id,
+        &escrow_id,
+        asset,
+        registry_id,
+        admin,
+        &min_initial_deposit,
+        &String::from_str(env, TEST_SHARE_NAME),
+        &String::from_str(env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
+    pool_id
+}
+
+/// Credits `lp` with a large token balance on `asset`'s `MockToken`.
+fn fund_lp(env: &Env, asset: &Address, lp: &Address) {
+    env.as_contract(asset, || {
+        env.storage()
+            .persistent()
+            .set(&TKey(lp.clone()), &100_000_000_000_000i128);
+    });
 }
 
 // ============== WITHDRAW TESTS ==============
@@ -642,6 +742,55 @@ fn test_withdraw_more_than_owned_panics() {
     let te = setup();
     te.pool.deposit(&te.lp, &10_000_000_000);
     te.pool.withdraw(&te.lp, &20_000_000_000);
+}
+
+// ============== TRANSFER TESTS ==============
+
+#[test]
+fn test_transfer_succeeds() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let recipient = Address::generate(&te.env);
+    te.pool.transfer(&te.lp, &recipient, &5_000_000_000);
+
+    let lp_position = te.pool.get_lp_position(&te.lp);
+    assert_eq!(lp_position.shares, 5_000_000_000);
+
+    let recipient_position = te.pool.get_lp_position(&recipient);
+    assert_eq!(recipient_position.shares, 5_000_000_000);
+}
+
+#[test]
+fn test_transfer_same_address_no_op() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let before = te.pool.get_lp_position(&te.lp);
+    te.pool.transfer(&te.lp, &te.lp, &5_000_000_000);
+    let after = te.pool.get_lp_position(&te.lp);
+
+    assert_eq!(before.shares, after.shares);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn test_transfer_zero_amount_panics() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let recipient = Address::generate(&te.env);
+    te.pool.transfer(&te.lp, &recipient, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_transfer_insufficient_balance_panics() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let recipient = Address::generate(&te.env);
+    te.pool.transfer(&te.lp, &recipient, &20_000_000_000);
 }
 
 // ============== FUND INVOICE TESTS ==============
@@ -1107,8 +1256,18 @@ fn test_default_max_utilization_in_stats() {
     let pool_id = env.register_contract(None, PoolContract);
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
     let pool = PoolContractClient::new(&env, &pool_id);
-    let treasury_address = Address::generate(&env);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
     let stats = pool.get_stats();
     assert_eq!(stats.max_utilization_bps, 8500);
 }
@@ -1160,12 +1319,22 @@ fn test_get_usdc_asset_returns_configured_asset() {
     assert_eq!(te.pool.get_usdc_asset(), te.usdc_id);
 }
 
-// get_usdc_asset delegates to Self::usdc(), whose instance read is
-// `.expect()`-guarded ("pool is not initialized: USDC asset missing") rather
+// get_funding_asset is the new, asset-generic name; get_usdc_asset (above) is
+// kept only as a deprecated alias for pre-factory integrators, and both must
+// return the same value (issue #743).
+#[test]
+fn test_get_funding_asset_returns_configured_asset() {
+    let te = setup();
+    assert_eq!(te.pool.get_funding_asset(), te.usdc_id);
+    assert_eq!(te.pool.get_funding_asset(), te.pool.get_usdc_asset());
+}
+
+// get_usdc_asset delegates to Self::funding_asset(), whose instance read is
+// `.expect()`-guarded ("pool is not initialized: funding asset missing") rather
 // than a typed PoolError. This test documents that untyped panic when the
 // pool has never been initialized (issues #591).
 #[test]
-#[should_panic(expected = "pool is not initialized: USDC asset missing")]
+#[should_panic(expected = "pool is not initialized: funding asset missing")]
 fn test_get_usdc_asset_panics_when_uninitialized() {
     let env = Env::default();
     let pool_id = env.register_contract(None, PoolContract);
@@ -2647,8 +2816,18 @@ fn test_initialize_rejects_each_pairwise_address_collision() {
 
         let pool_id = env.register_contract(None, PoolContract);
         let pool = PoolContractClient::new(&env, &pool_id);
-        let treasury_address = Address::generate(&env);
-        let res = pool.try_initialize(&addrs[0], &addrs[1], &addrs[2], &addrs[3], &addrs[4], &treasury_address);
+        let res = pool.try_initialize(
+            &addrs[0],
+            &addrs[1],
+            &addrs[2],
+            &addrs[3],
+            &addrs[4],
+            &addrs[0],
+            &DEFAULT_MIN_INITIAL_DEPOSIT,
+            &String::from_str(&env, TEST_SHARE_NAME),
+            &String::from_str(&env, TEST_SHARE_SYMBOL),
+            &DEFAULT_SHARE_DECIMALS,
+        );
         assert!(
             res.is_err(),
             "collision between initialize() params {i} and {j} should be rejected"
@@ -2732,8 +2911,18 @@ fn test_deposit_extends_instance_ttl_when_below_threshold() {
     );
 
     let pool = PoolContractClient::new(&env, &pool_id);
-    let treasury_address = Address::generate(&env);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
 
     // After initialize: TTL should be bumped to ~TTL_EXTEND_TO.
     let ttl_after = env.as_contract(&pool_id, || env.storage().instance().get_ttl());
@@ -2891,13 +3080,28 @@ fn test_double_initialize_panics() {
                 escrow_id.clone(),
                 usdc_id.clone(),
                 registry_id.clone(),
-                treasury_address.clone(),
+                admin.clone(),
+                DEFAULT_MIN_INITIAL_DEPOSIT,
+                String::from_str(&env, TEST_SHARE_NAME),
+                String::from_str(&env, TEST_SHARE_SYMBOL),
+                DEFAULT_SHARE_DECIMALS,
             )
                 .into_val(&env),
             sub_invokes: &[],
         },
     }]);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
 
     // Verify storage state after first initialize
     env.as_contract(&pool_id, || {
@@ -2915,12 +3119,39 @@ fn test_double_initialize_panics() {
             .get(&DataKey::EscrowContract)
             .unwrap();
         assert_eq!(stored_escrow, escrow_id);
-        let stored_usdc: Address = env.storage().instance().get(&DataKey::UsdcAsset).unwrap();
-        assert_eq!(stored_usdc, usdc_id);
+        let stored_funding_asset: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingAsset)
+            .unwrap();
+        assert_eq!(stored_funding_asset, usdc_id);
+        let stored_fee: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProtocolFeeBps)
+            .unwrap();
+        assert_eq!(stored_fee, 0);
+        let stored_treasury: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryAddress)
+            .unwrap();
+        assert_eq!(stored_treasury, admin);
     });
 
     // Second initialize — panics with AlreadyInitialized (#1)
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
 }
 
 #[test]
@@ -3064,9 +3295,19 @@ mod real_registry_integration {
         let escrow = RealEscrowClient::new(&env, &escrow_id);
         escrow.initialize(&admin, &pool_id, &usdc_id);
 
-        let treasury_address = Address::generate(&env);
-    let pool = PoolContractClient::new(&env, &pool_id);
-    pool.initialize(&admin, &invoice_id_addr, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+        let pool = PoolContractClient::new(&env, &pool_id);
+        pool.initialize(
+            &admin,
+            &invoice_id_addr,
+            &escrow_id,
+            &usdc_id,
+            &registry_id,
+            &admin,
+            &DEFAULT_MIN_INITIAL_DEPOSIT,
+            &String::from_str(&env, TEST_SHARE_NAME),
+            &String::from_str(&env, TEST_SHARE_SYMBOL),
+            &DEFAULT_SHARE_DECIMALS,
+        );
 
         invoice.add_supported_asset(&usdc_id);
         invoice.set_pool_contract(&pool_id);
@@ -3243,7 +3484,18 @@ fn test_initialize_emits_pool_initialized_event() {
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_addr, &usdc_id);
 
     let pool = PoolContractClient::new(&env, &pool_addr);
-    pool.initialize(&admin, &invoice_id, &escrow_id, &usdc_id, &registry_id, &treasury_address);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
 
     let events = env.events().all();
     let mut found = false;
@@ -3328,12 +3580,12 @@ fn test_get_escrow_contract_panics_when_uninitialized() {
 
 // ============== CONSTANTS LOCATION TESTS (issue #592) ==============
 
-// MIN_INITIAL_DEPOSIT and DEFAULT_MAX_UTILIZATION_BPS must be importable from
+// DEFAULT_MIN_INITIAL_DEPOSIT and DEFAULT_MAX_UTILIZATION_BPS must be importable from
 // `constants` (re-exported via `pub use constants::*` in lib.rs) and hold the
 // canonical values.
 #[test]
 fn test_min_initial_deposit_constant_value() {
-    assert_eq!(MIN_INITIAL_DEPOSIT, 10_000_000);
+    assert_eq!(DEFAULT_MIN_INITIAL_DEPOSIT, 10_000_000);
 }
 
 #[test]
@@ -3499,7 +3751,7 @@ fn prop_any_valid_initial_deposit_issues_shares_equal_to_amount() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
         .run(
-            &(MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
+            &(DEFAULT_MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
             |deposit_amount| {
                 let te = setup();
                 let shares = te.pool.deposit(&te.lp, &deposit_amount);
@@ -3517,13 +3769,13 @@ fn prop_any_valid_initial_deposit_issues_shares_equal_to_amount() {
         .unwrap();
 }
 
-// A deposit below MIN_INITIAL_DEPOSIT on an empty pool must always be rejected
+// A deposit below DEFAULT_MIN_INITIAL_DEPOSIT on an empty pool must always be rejected
 // with InvalidAmount (#4), regardless of the exact value.
 #[test]
 fn prop_initial_deposit_below_minimum_always_rejected() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
-        .run(&(1u128..MIN_INITIAL_DEPOSIT), |deposit_amount| {
+        .run(&(1u128..DEFAULT_MIN_INITIAL_DEPOSIT), |deposit_amount| {
             let te = setup();
             let result = te.pool.try_deposit(&te.lp, &deposit_amount);
             prop_assert!(
@@ -3542,7 +3794,7 @@ fn prop_full_withdrawal_returns_exact_deposit_with_no_yield() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
         .run(
-            &(MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
+            &(DEFAULT_MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
             |deposit_amount| {
                 let te = setup();
                 let shares = te.pool.deposit(&te.lp, &deposit_amount);
@@ -3568,7 +3820,7 @@ fn prop_full_withdrawal_clears_lp_position() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
         .run(
-            &(MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
+            &(DEFAULT_MIN_INITIAL_DEPOSIT..=1_000_000_000_000u128),
             |deposit_amount| {
                 let te = setup();
                 let shares = te.pool.deposit(&te.lp, &deposit_amount);
@@ -3623,6 +3875,110 @@ fn prop_repayment_increases_deposits_by_yield_and_clears_funded() {
         .unwrap();
 }
 
+// ============== ISSUE #771: NONZERO PROTOCOL FEE SPLITS ==============
+
+#[test]
+fn test_freshly_initialized_pool_has_zero_protocol_fee() {
+    let te = setup();
+    assert_eq!(te.pool.get_protocol_fee_bps(), 0);
+    assert_eq!(te.pool.get_treasury(), te.admin);
+}
+
+#[test]
+fn test_nonzero_protocol_fee_splits_receive_repayment() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    te.pool.fund_invoice(&invoice_id);
+
+    let treasury = Address::generate(&te.env);
+    let fee_bps = 1000u32; // 10% protocol fee (1000 bps)
+    te.pool.set_protocol_fee(&fee_bps, &treasury);
+
+    assert_eq!(te.pool.get_protocol_fee_bps(), 1000);
+    assert_eq!(te.pool.get_treasury(), treasury);
+
+    let usdc = MockTokenClient::new(&te.env, &te.usdc_id);
+    let treasury_before = usdc.balance(&treasury);
+    let before_stats = te.pool.get_stats();
+
+    let amount = DEFAULT_FACE_VALUE;
+    let yield_amount = DEFAULT_YIELD_AMOUNT;
+    let expected_protocol_cut = yield_amount * (fee_bps as u128) / 10_000;
+    let expected_lp_yield = yield_amount - expected_protocol_cut;
+
+    let result = te.pool.receive_repayment(&invoice_id, &amount);
+    assert!(result);
+
+    let treasury_after = usdc.balance(&treasury);
+    let after_stats = te.pool.get_stats();
+
+    // Assert treasury address's USDC balance increased by exactly protocol_cut
+    assert_eq!(
+        treasury_after - treasury_before,
+        expected_protocol_cut as i128
+    );
+
+    // Assert TotalYieldDistributed increased by exactly lp_yield
+    assert_eq!(
+        after_stats.total_yield_distributed - before_stats.total_yield_distributed,
+        expected_lp_yield
+    );
+    assert_eq!(
+        after_stats.total_deposits - before_stats.total_deposits,
+        expected_lp_yield
+    );
+}
+
+#[test]
+fn test_nonzero_protocol_fee_splits_receive_repayment_with_refund() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    te.pool.fund_invoice(&invoice_id);
+
+    let treasury = Address::generate(&te.env);
+    let fee_bps = 500u32; // 5% protocol fee (500 bps)
+    te.pool.set_protocol_fee(&fee_bps, &treasury);
+
+    assert_eq!(te.pool.get_protocol_fee_bps(), 500);
+    assert_eq!(te.pool.get_treasury(), treasury);
+
+    let usdc = MockTokenClient::new(&te.env, &te.usdc_id);
+    let treasury_before = usdc.balance(&treasury);
+    let before_stats = te.pool.get_stats();
+
+    let amount = DEFAULT_FACE_VALUE;
+    let refund = 100_000_000u128; // 100M refund to buyer out of 200M surplus
+    let yield_amount = amount - DEFAULT_FUNDED_AMOUNT - refund; // 100_000_000
+    let expected_protocol_cut = yield_amount * (fee_bps as u128) / 10_000; // 5_000_000
+    let expected_lp_yield = yield_amount - expected_protocol_cut; // 95_000_000
+
+    let result = te
+        .pool
+        .receive_repayment_with_refund(&invoice_id, &amount, &refund, &te.buyer);
+    assert!(result);
+
+    let treasury_after = usdc.balance(&treasury);
+    let after_stats = te.pool.get_stats();
+
+    // Assert treasury address's USDC balance increased by exactly protocol_cut
+    assert_eq!(
+        treasury_after - treasury_before,
+        expected_protocol_cut as i128
+    );
+
+    // Assert TotalYieldDistributed increased by exactly lp_yield
+    assert_eq!(
+        after_stats.total_yield_distributed - before_stats.total_yield_distributed,
+        expected_lp_yield
+    );
+    assert_eq!(
+        after_stats.total_deposits - before_stats.total_deposits,
+        expected_lp_yield
+    );
+}
+
 // ============== ISSUE #774: GAS BENCHMARK FOR DEPOSIT / WITHDRAW ==============
 
 #[test]
@@ -3668,113 +4024,645 @@ fn test_gas_benchmark_deposit_and_withdraw() {
     assert_eq!(returned, 5_000_000_000);
 }
 
-// ============== PROTOCOL FEE TESTS ==============
+// ============== ISSUE #772: NEGATIVE-AUTH FOR SET_PROTOCOL_FEE ==============
 
+// set_protocol_fee must reject callers other than the admin (#772), matching
+// the pattern used by set_max_utilization.
 #[test]
-fn test_protocol_fee_zero_fee_bps_unchanged_behavior() {
-    let mut te = setup();
-    // Set fee_bps to 0 (default)
-    te.pool.set_fee_bps(&te.admin, &0);
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_set_protocol_fee_requires_admin_authorization() {
+    let te = setup();
+    let treasury = Address::generate(&te.env);
 
-    // Fund and repay an invoice
-    let invoice_id = create_and_list(&te, &te.usdc_id);
-    let _ = te.pool.fund_invoice(&invoice_id);
-    te.invoice.mark_shipped(&invoice_id);
-    te.invoice.confirm_delivery(&invoice_id, &te.issuer);
-    te.invoice.confirm_delivery(&invoice_id, &te.buyer);
-    te.env.ledger().set_timestamp(te.env.ledger().timestamp() + 86401);
-    te.invoice.repay(&invoice_id);
-
-    // With 0% fee, behavior should be unchanged
-    let stats = te.pool.get_stats();
-    assert_eq!(stats.total_yield_distributed, DEFAULT_YIELD_AMOUNT);
-    assert_eq!(stats.total_deposits, 10_000_000_000 + DEFAULT_YIELD_AMOUNT); // initial deposit + yield
+    // Clear all mocked auths so the caller's require_auth() fails.
+    te.env.set_auths(&[]);
+    te.pool.set_protocol_fee(&500, &treasury);
 }
 
 #[test]
-fn test_protocol_fee_non_zero_fee_bps_split_correctly() {
-    let mut te = setup();
-    // Set fee_bps to 500 (5%)
-    te.pool.set_fee_bps(&te.admin, &500);
-    // Treasury address is already set in setup
-
-    // Fund and repay an invoice
-    let invoice_id = create_and_list(&te, &te.usdc_id);
-    let _ = te.pool.fund_invoice(&invoice_id);
-    te.invoice.mark_shipped(&invoice_id);
-    te.invoice.confirm_delivery(&invoice_id, &te.issuer);
-    te.invoice.confirm_delivery(&invoice_id, &te.buyer);
-    te.env.ledger().set_timestamp(te.env.ledger().timestamp() + 86401);
-    te.invoice.repay(&invoice_id);
-
-    // Calculate expected values
-    // yield_amount = 200_000_000 (from DEFAULT_YIELD_AMOUNT)
-    // protocol_cut = yield_amount * 500 / 10_000 = 200_000_000 * 500 / 10_000 = 10_000_000
-    // lp_yield = yield_amount - protocol_cut = 200_000_000 - 10_000_000 = 190_000_000
-    let expected_protocol_cut = 10_000_000;
-    let expected_lp_yield = 190_000_000;
-
-    // Check pool accounting
-    let stats = te.pool.get_stats();
-    assert_eq!(stats.total_yield_distributed, expected_lp_yield); // Only LP yield goes to yield_distributed
-    assert_eq!(stats.total_deposits, 10_000_000_000 + expected_lp_yield); // initial deposit + LP yield
-
-    // Check treasury received the protocol cut
-    let usdc_id = te.usdc_id;
-    let treasury_balance = MockTokenClient::new(&te.env, &usdc_id).balance(&te.pool.get_treasury_address(&te.env));
-    assert_eq!(treasury_balance, expected_protocol_cut as i128);
+#[should_panic(expected = "Error(Contract, #22)")]
+fn test_set_protocol_fee_above_max_cap_panics() {
+    let te = setup();
+    let treasury = Address::generate(&te.env);
+    te.pool.set_protocol_fee(&2001, &treasury);
 }
 
 #[test]
-fn test_protocol_fee_can_update_treasury_address() {
-    let mut te = setup();
-    let new_treasury = Address::generate(&te.env);
-
-    // Update treasury address
-    assert!(te.pool.set_treasury_address(&te.admin, &new_treasury));
-
-    // Verify it was updated
-    assert_eq!(te.pool.get_treasury_address(&te.env), new_treasury);
+fn test_set_protocol_fee_at_max_cap_succeeds() {
+    let te = setup();
+    let treasury = Address::generate(&te.env);
+    let ok = te.pool.set_protocol_fee(&2000, &treasury);
+    assert!(ok);
+    assert_eq!(te.pool.get_protocol_fee_bps(), 2000);
+    assert_eq!(te.pool.get_treasury(), treasury);
 }
 
+// ============== ISSUE #770: DEFAULT-ZERO PROTOCOL FEE ACCOUNTING REGRESSION ==============
+
 #[test]
-fn test_protocol_fee_with_refund() {
-    let mut te = setup();
-    // Set fee_bps to 200 (2%)
-    te.pool.set_fee_bps(&te.admin, &200);
+fn test_default_zero_protocol_fee_preserves_repayment_accounting_unchanged() {
+    let te = setup();
+    // Verify default protocol fee is zero and treasury is te.admin
+    assert_eq!(te.pool.get_protocol_fee_bps(), 0);
+    assert_eq!(te.pool.get_treasury(), te.admin);
 
-    // Fund and repay an invoice with refund
+    let initial_deposit = 100_000_000_000u128;
+    let shares = te.pool.deposit(&te.lp, &initial_deposit);
     let invoice_id = create_and_list(&te, &te.usdc_id);
-    let _ = te.pool.fund_invoice(&invoice_id);
-    te.invoice.mark_shipped(&invoice_id);
-    te.invoice.confirm_delivery(&invoice_id, &te.issuer);
-    te.invoice.confirm_delivery(&invoice_id, &te.buyer);
-    te.env.ledger().set_timestamp(te.env.ledger().timestamp() + 86401);
+    te.pool.fund_invoice(&invoice_id);
 
-    // Repay with refund: amount=10_000_000_000, refund=50_000_000
-    // funded_amount = 9_800_000_000
-    // yield_amount = amount - funded_amount - refund = 10_000_000_000 - 9_800_000_000 - 50_000_000 = 150_000_000
-    // protocol_cut = yield_amount * 200 / 10_000 = 150_000_000 * 200 / 10_000 = 3_000_000
-    // lp_yield = yield_amount - protocol_cut = 150_000_000 - 3_000_000 = 147_000_000
-    let amount = 10_000_000_000;
-    let refund = 50_000_000;
-    let expected_protocol_cut = 3_000_000;
-    let expected_lp_yield = 147_000_000;
+    let usdc = MockTokenClient::new(&te.env, &te.usdc_id);
+    let treasury = te.pool.get_treasury();
+    let treasury_before = usdc.balance(&treasury);
+    let before_stats = te.pool.get_stats();
 
-    let result = te.pool.receive_repayment_with_refund(&invoice_id, &amount, &refund, &te.buyer);
+    let amount = DEFAULT_FACE_VALUE; // 1_200_000_000
+    let yield_amount = DEFAULT_YIELD_AMOUNT; // 200_000_000
+
+    let result = te.pool.receive_repayment(&invoice_id, &amount);
     assert!(result);
 
-    // Check pool accounting
-    let stats = te.pool.get_stats();
-    assert_eq!(stats.total_yield_distributed, expected_lp_yield);
-    assert_eq!(stats.total_deposits, 10_000_000_000 + expected_lp_yield);
+    let treasury_after = usdc.balance(&treasury);
+    let after_stats = te.pool.get_stats();
 
-    // Check treasury received the protocol cut
-    let usdc_id = te.usdc_id;
-    let treasury_balance = MockTokenClient::new(&te.env, &usdc_id).balance(&te.pool.get_treasury_address(&te.env));
-    assert_eq!(treasury_balance, expected_protocol_cut as i128);
+    // At default 0 bps fee, treasury cut is exactly 0
+    assert_eq!(
+        treasury_after, treasury_before,
+        "treasury balance must remain completely unchanged at default 0 bps fee"
+    );
 
-    // Check buyer received refund
-    let buyer_balance = MockTokenClient::new(&te.env, &usdc_id).balance(&te.buyer);
-    assert_eq!(buyer_balance, refund as i128); // Assuming buyer started with 0
+    // 100% of yield goes to LPs: TotalYieldDistributed and TotalDeposits increase by full yield_amount
+    assert_eq!(
+        after_stats.total_yield_distributed - before_stats.total_yield_distributed,
+        yield_amount,
+        "TotalYieldDistributed must increase by full yield_amount"
+    );
+    assert_eq!(
+        after_stats.total_deposits - before_stats.total_deposits,
+        yield_amount,
+        "TotalDeposits must increase by full yield_amount"
+    );
+    assert_eq!(after_stats.total_funded, 0);
+
+    // LP withdrawing all shares receives initial_deposit + yield_amount (pre-fee identical behavior)
+    let returned = te.pool.withdraw(&te.lp, &shares);
+    assert_eq!(returned, initial_deposit + yield_amount);
+}
+
+#[test]
+fn test_default_zero_protocol_fee_preserves_refunded_repayment_accounting_unchanged() {
+    let te = setup();
+    assert_eq!(te.pool.get_protocol_fee_bps(), 0);
+
+    let initial_deposit = 100_000_000_000u128;
+    te.pool.deposit(&te.lp, &initial_deposit);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    te.pool.fund_invoice(&invoice_id);
+
+    let usdc = MockTokenClient::new(&te.env, &te.usdc_id);
+    let treasury = te.pool.get_treasury();
+    let treasury_before = usdc.balance(&treasury);
+    let before_stats = te.pool.get_stats();
+
+    let amount = DEFAULT_FACE_VALUE; // 1_200_000_000
+    let refund = 50_000_000u128;
+    let expected_yield = amount - DEFAULT_FUNDED_AMOUNT - refund; // 150_000_000
+
+    let result = te
+        .pool
+        .receive_repayment_with_refund(&invoice_id, &amount, &refund, &te.buyer);
+    assert!(result);
+
+    let treasury_after = usdc.balance(&treasury);
+    let after_stats = te.pool.get_stats();
+
+    // Treasury cut must be zero
+    assert_eq!(treasury_after, treasury_before);
+
+    // Full expected yield goes to LPs
+    assert_eq!(
+        after_stats.total_yield_distributed - before_stats.total_yield_distributed,
+        expected_yield
+    );
+    assert_eq!(
+        after_stats.total_deposits - before_stats.total_deposits,
+        expected_yield
+    );
+}
+
+// ============== ISSUE #765: PROTOCOL FEE STORAGE AND INITIALIZATION ==============
+
+#[test]
+fn test_protocol_fee_storage_initialized_to_zero_and_admin_treasury() {
+    let te = setup();
+    // Freshly initialized pool must read back fee_bps == 0 and treasury == admin
+    assert_eq!(te.pool.get_protocol_fee_bps(), 0);
+    assert_eq!(te.pool.get_treasury(), te.admin);
+}
+
+#[test]
+fn test_set_protocol_fee_updates_both_stored_values_and_reads_back() {
+    let te = setup();
+    let treasury = Address::generate(&te.env);
+    let fee_bps = 750u32; // 7.5%
+
+    let updated = te.pool.set_protocol_fee(&fee_bps, &treasury);
+    assert!(updated);
+
+    assert_eq!(te.pool.get_protocol_fee_bps(), 750);
+    assert_eq!(te.pool.get_treasury(), treasury);
+}
+
+#[test]
+fn test_protocol_fee_storage_initialized_with_custom_treasury() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let invoice_id = env.register_contract(None, RealInvoice);
+    let escrow_id = env.register_contract(None, RealEscrow);
+    let usdc_id = env.register_contract(None, MockToken);
+    let registry_id = env.register_contract(None, MockRegistry);
+    let custom_treasury = Address::generate(&env);
+
+    RealInvoiceClient::new(&env, &invoice_id).initialize(&admin, &registry_id);
+    let pool_id = env.register_contract(None, PoolContract);
+    RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
+
+    let pool = PoolContractClient::new(&env, &pool_id);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &custom_treasury,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, TEST_SHARE_NAME),
+        &String::from_str(&env, TEST_SHARE_SYMBOL),
+        &DEFAULT_SHARE_DECIMALS,
+    );
+
+    assert_eq!(pool.get_protocol_fee_bps(), 0);
+    assert_eq!(pool.get_treasury(), custom_treasury);
+}
+
+#[test]
+fn test_sep41_balance_and_total_supply() {
+    let te = setup();
+    let client = PoolContractClient::new(&te.env, &te.pool_id);
+
+    let unknown_lp = Address::generate(&te.env);
+
+    // Check total supply
+    let initial_supply = client.total_supply();
+    assert_eq!(initial_supply, 0);
+
+    // Check unknown LP balance
+    let unknown_balance = client.balance(&unknown_lp);
+    assert_eq!(unknown_balance, 0);
+
+    // Check known LP balance after deposit
+    client.deposit(&te.lp, &100_000_000);
+
+    let supply_after = client.total_supply();
+    assert_eq!(supply_after, 100_000_000);
+
+    let lp_balance = client.balance(&te.lp);
+    assert_eq!(lp_balance, 100_000_000);
+}
+
+// ============== ISSUE #756: SEP-41 ALLOWANCE INTERFACE ==============
+
+// approve() records a grant that allowance() reports until it is spent,
+// revoked, or expires.
+#[test]
+fn test_approve_sets_allowance_until_expiration() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 100;
+
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 0);
+    te.pool.approve(&te.lp, &spender, &5_000_000_000, &expires);
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 5_000_000_000);
+
+    // A second approve overwrites the grant (SEP-41 semantics) rather than
+    // adding to it, and it can move the expiry.
+    te.pool
+        .approve(&te.lp, &spender, &1_000_000_000, &(expires + 50));
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 1_000_000_000);
+
+    // The grant is per (owner, spender) pair: another spender sees nothing.
+    assert_eq!(te.pool.allowance(&te.lp, &Address::generate(&te.env)), 0);
+}
+
+// The whole point of the allowance: a spender moves shares, the grant shrinks
+// by exactly what moved, and nobody's total share supply changes.
+#[test]
+fn test_transfer_from_decrements_allowance() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let recipient = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 100;
+    te.pool.approve(&te.lp, &spender, &5_000_000_000, &expires);
+
+    te.pool
+        .transfer_from(&spender, &te.lp, &recipient, &2_000_000_000);
+
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 3_000_000_000);
+    assert_eq!(te.pool.get_lp_position(&recipient).shares, 2_000_000_000);
+    assert_eq!(te.pool.get_lp_position(&te.lp).shares, 8_000_000_000);
+    // Moving shares must not mint or burn them.
+    assert_eq!(te.pool.get_stats().total_shares, 10_000_000_000);
+
+    // Spending the rest takes the grant to exactly zero.
+    te.pool
+        .transfer_from(&spender, &te.lp, &recipient, &3_000_000_000);
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 0);
+    assert_eq!(te.pool.get_lp_position(&recipient).shares, 5_000_000_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #24)")]
+fn test_transfer_from_fails_once_allowance_exhausted() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let recipient = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 100;
+    te.pool.approve(&te.lp, &spender, &1_000, &expires);
+    te.pool.transfer_from(&spender, &te.lp, &recipient, &1_000);
+
+    // Grant fully spent: the next move is rejected, and it is rejected before
+    // any share leaves the owner.
+    te.pool.transfer_from(&spender, &te.lp, &recipient, &1);
+}
+
+#[test]
+fn test_allowance_reads_zero_after_expiration() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 10;
+    te.pool.approve(&te.lp, &spender, &5_000_000_000, &expires);
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 5_000_000_000);
+
+    // The grant is still live on its last ledger...
+    te.env
+        .ledger()
+        .set_sequence_number(te.env.ledger().sequence() + 10);
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 5_000_000_000);
+
+    // ...and dead from the next one onwards, without anyone having to prune it.
+    te.env
+        .ledger()
+        .set_sequence_number(te.env.ledger().sequence() + 1);
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #24)")]
+fn test_transfer_from_rejects_expired_allowance() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let recipient = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 5;
+    te.pool.approve(&te.lp, &spender, &5_000_000_000, &expires);
+    te.env
+        .ledger()
+        .set_sequence_number(te.env.ledger().sequence() + 6);
+
+    te.pool.transfer_from(&spender, &te.lp, &recipient, &1);
+}
+
+#[test]
+fn test_approve_with_zero_amount_revokes_allowance() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let recipient = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 100;
+    te.pool.approve(&te.lp, &spender, &5_000_000_000, &expires);
+
+    // Revoking needs no future expiry: amount 0 is the revoke signal.
+    te.pool.approve(&te.lp, &spender, &0, &0);
+    assert_eq!(te.pool.allowance(&te.lp, &spender), 0);
+    assert!(te
+        .pool
+        .try_transfer_from(&spender, &te.lp, &recipient, &1)
+        .is_err());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_approve_with_expiration_in_the_past_panics() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    te.pool
+        .approve(&te.lp, &spender, &1_000, &te.env.ledger().sequence());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #24)")]
+fn test_transfer_from_rejects_spender_without_grant() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let stranger = Address::generate(&te.env);
+    let recipient = Address::generate(&te.env);
+    te.pool.transfer_from(&stranger, &te.lp, &recipient, &1_000);
+}
+
+// approve() is a state change LPs and spenders both need to observe off-chain,
+// so it emits `allowance_approved` with the new total grant and its expiry.
+#[test]
+fn test_approve_emits_allowance_approved_event() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    let spender = Address::generate(&te.env);
+    let expires = te.env.ledger().sequence() + 100;
+    let before = te.env.events().all().len();
+    te.pool.approve(&te.lp, &spender, &5_000_000_000, &expires);
+
+    let events = te.env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.pool_id);
+    assert_eq!(topics.len(), 2);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "allowance_approved")
+    );
+    assert_eq!(
+        Address::try_from_val(&te.env, &topics.get(1).unwrap()).unwrap(),
+        te.lp
+    );
+    assert_eq!(
+        <(Address, i128, u32)>::try_from_val(&te.env, &data).unwrap(),
+        (spender.clone(), 5_000_000_000, expires)
+    );
+
+    // A rejected approve (expiry already passed) must not emit either.
+    assert!(te
+        .pool
+        .try_approve(&te.lp, &spender, &1_000, &te.env.ledger().sequence())
+        .is_err());
+    assert_eq!(te.env.events().all().len(), events.len());
+}
+
+// ============== ISSUE #757: SEP-41 SHARE METADATA ==============
+
+#[test]
+fn test_share_metadata_comes_from_initialize() {
+    let te = setup();
+    assert_eq!(te.pool.name(), String::from_str(&te.env, TEST_SHARE_NAME));
+    assert_eq!(
+        te.pool.symbol(),
+        String::from_str(&te.env, TEST_SHARE_SYMBOL)
+    );
+    // Shares are denominated in the funding asset's base units, so the value
+    // configured at `initialize` is what `decimals()` reports.
+    assert_eq!(te.pool.decimals(), DEFAULT_SHARE_DECIMALS);
+
+    // Metadata lives on the instance, written once by initialize.
+    te.env.as_contract(&te.pool_id, || {
+        let stored_name: String = te
+            .env
+            .storage()
+            .instance()
+            .get(&DataKey::ShareName)
+            .unwrap();
+        let stored_symbol: String = te
+            .env
+            .storage()
+            .instance()
+            .get(&DataKey::ShareSymbol)
+            .unwrap();
+        assert_eq!(stored_name, String::from_str(&te.env, TEST_SHARE_NAME));
+        assert_eq!(stored_symbol, String::from_str(&te.env, TEST_SHARE_SYMBOL));
+    });
+}
+
+// The per-asset `pool_factory` model is the reason metadata is an initializer
+// argument instead of a constant: two pool instances are two different share
+// tokens and must not render identically in a wallet.
+#[test]
+fn test_share_metadata_is_scoped_to_the_pool_instance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let invoice_id = env.register_contract(None, RealInvoice);
+    let escrow_id = env.register_contract(None, RealEscrow);
+    let usdc_id = env.register_contract(None, MockToken);
+    let registry_id = env.register_contract(None, MockRegistry);
+    let pool_id = env.register_contract(None, PoolContract);
+
+    RealInvoiceClient::new(&env, &invoice_id).initialize(&admin, &registry_id);
+    RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
+
+    let pool = PoolContractClient::new(&env, &pool_id);
+    pool.initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, "TrusTrove XLM Pool Shares"),
+        &String::from_str(&env, "TT-XLM"),
+        &12,
+    );
+
+    assert_eq!(
+        pool.name(),
+        String::from_str(&env, "TrusTrove XLM Pool Shares")
+    );
+    assert_eq!(pool.symbol(), String::from_str(&env, "TT-XLM"));
+    // A non-7 value proves decimals is per-instance state, not a constant.
+    assert_eq!(pool.decimals(), 12);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_initialize_rejects_empty_share_symbol() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let invoice_id = env.register_contract(None, RealInvoice);
+    let escrow_id = env.register_contract(None, RealEscrow);
+    let usdc_id = env.register_contract(None, MockToken);
+    let registry_id = env.register_contract(None, MockRegistry);
+    let pool_id = env.register_contract(None, PoolContract);
+
+    RealInvoiceClient::new(&env, &invoice_id).initialize(&admin, &registry_id);
+    RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
+
+    PoolContractClient::new(&env, &pool_id).initialize(
+        &admin,
+        &invoice_id,
+        &escrow_id,
+        &usdc_id,
+        &registry_id,
+        &admin,
+        &DEFAULT_MIN_INITIAL_DEPOSIT,
+        &String::from_str(&env, "TrusTrove USDC Pool Shares"),
+        &String::from_str(&env, ""),
+        &DEFAULT_SHARE_DECIMALS,
+    );
+}
+
+#[test]
+fn test_share_metadata_unreadable_before_initialize() {
+    let env = Env::default();
+    let pool_id = env.register_contract(None, PoolContract);
+    let pool = PoolContractClient::new(&env, &pool_id);
+
+    assert!(pool.try_name().is_err());
+    assert!(pool.try_symbol().is_err());
+    // `decimals` falls back to the 7-decimal default instead of panicking, so
+    // pools that predate the parameter still render sensibly.
+    assert_eq!(pool.decimals(), DEFAULT_SHARE_DECIMALS);
+}
+
+// ============== ISSUE #758: DEPOSIT ROUTES THROUGH mint() ==============
+
+// The `mint()` extraction must be invisible from the outside: same shares, same
+// bookkeeping, and exactly one event with the same payload shape.
+#[test]
+fn test_deposit_mints_through_shared_helper_without_changing_behaviour() {
+    let te = setup();
+
+    let before = te.env.events().all().len();
+    let shares = te.pool.deposit(&te.lp, &10_000_000_000);
+    assert_eq!(shares, 10_000_000_000);
+
+    // One event, unchanged: `lp_deposited(lp, usdc_amount, shares_issued)`.
+    let events = te.env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.pool_id);
+    assert_eq!(topics.len(), 2);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "lp_deposited")
+    );
+    assert_eq!(
+        <(u128, u128)>::try_from_val(&te.env, &data).unwrap(),
+        (10_000_000_000u128, 10_000_000_000u128)
+    );
+
+    // mint() bumps the total and the LP's balance together...
+    assert_eq!(te.pool.get_stats().total_shares, 10_000_000_000);
+    assert_eq!(te.pool.get_lp_position(&te.lp).shares, 10_000_000_000);
+
+    // ...and a second deposit through the same helper is additive.
+    te.pool.deposit(&te.lp, &5_000_000_000);
+    assert_eq!(te.pool.get_stats().total_shares, 15_000_000_000);
+    assert_eq!(te.pool.get_lp_position(&te.lp).shares, 15_000_000_000);
+}
+
+// `total_shares` in stats and the LP's share balance must agree, since that is
+// the invariant `mint()`/`burn()` now own.
+#[test]
+fn test_share_supply_stays_consistent_across_mint_and_burn() {
+    let te = setup();
+    let other = Address::generate(&te.env);
+    te.pool.deposit(&te.lp, &10_000_000_000);
+
+    // top up the mock token for a second LP
+    te.env.as_contract(&te.usdc_id, || {
+        te.env
+            .storage()
+            .persistent()
+            .set(&TKey(other.clone()), &100_000_000_000_000i128);
+    });
+    te.pool.deposit(&other, &20_000_000_000);
+
+    assert_eq!(te.pool.get_stats().total_shares, 30_000_000_000);
+    assert_eq!(
+        te.pool.get_lp_position(&te.lp).shares + te.pool.get_lp_position(&other).shares,
+        30_000_000_000
+    );
+
+    te.pool.withdraw(&te.lp, &4_000_000_000);
+    assert_eq!(te.pool.get_stats().total_shares, 26_000_000_000);
+    assert_eq!(te.pool.get_lp_position(&te.lp).shares, 6_000_000_000);
+}
+
+// ============== ISSUE #767: protocol_fee_updated EVENT ==============
+
+// A fee/treasury change is high-impact for LPs, so it must be observable
+// without polling `get_protocol_fee_bps`, and the event must carry the *old*
+// value so an indexer can report what changed.
+#[test]
+fn test_set_protocol_fee_emits_event_with_old_and_new_values() {
+    let te = setup();
+    let treasury = Address::generate(&te.env);
+    let before = te.env.events().all().len();
+
+    te.pool.set_protocol_fee(&750, &treasury);
+
+    let events = te.env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.pool_id);
+    assert_eq!(topics.len(), 1);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "protocol_fee_updated")
+    );
+    // setup() initialized the fee to 0 bps, so the first change reports 0 -> 750.
+    assert_eq!(
+        <(u32, u32, Address)>::try_from_val(&te.env, &data).unwrap(),
+        (0u32, 750u32, treasury.clone())
+    );
+
+    // A second change reports the value it replaced, not the original one.
+    te.pool.set_protocol_fee(&1500, &treasury);
+    let events = te.env.events().all();
+    let (_contract, _topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(
+        <(u32, u32, Address)>::try_from_val(&te.env, &data).unwrap(),
+        (750u32, 1500u32, treasury.clone())
+    );
+
+    // A rejected change (above MAX_PROTOCOL_FEE_BPS) must not emit anything,
+    // and must leave the stored fee at 1500.
+    let before_rejected = events.len();
+    assert!(te.pool.try_set_protocol_fee(&2001, &treasury).is_err());
+    assert_eq!(te.env.events().all().len(), before_rejected);
+    assert_eq!(te.pool.get_protocol_fee_bps(), 1500);
+}
+
+// Re-pointing the treasury is reported in the same event even when the fee
+// itself does not change, so monitoring sees the destination move.
+#[test]
+fn test_set_protocol_fee_event_reports_treasury_change_with_unchanged_fee() {
+    let te = setup();
+    let treasury = Address::generate(&te.env);
+    te.pool.set_protocol_fee(&500, &treasury);
+
+    let new_treasury = Address::generate(&te.env);
+    te.pool.set_protocol_fee(&500, &new_treasury);
+
+    let events = te.env.events().all();
+    let (_contract, _topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(
+        <(u32, u32, Address)>::try_from_val(&te.env, &data).unwrap(),
+        (500u32, 500u32, new_treasury.clone())
+    );
+    assert_eq!(te.pool.get_treasury(), new_treasury);
+    assert_eq!(te.pool.get_protocol_fee_bps(), 500);
 }
