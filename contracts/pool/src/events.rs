@@ -76,41 +76,19 @@ pub fn protocol_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32, treas
     );
 }
 
-// SEP-41 Events
-pub fn transfer(env: &Env, from: &Address, to: &Address, amount: u128) {
+/// Emitted by `approve` whenever an LP's spending grant changes, so a spender
+/// (and any indexer watching LP positions) can observe pre-authorized share
+/// movement without polling `allowance`. `amount` is the new total grant, not a
+/// delta, matching SEP-41's `approve` semantics.
+pub fn allowance_approved(
+    env: &Env,
+    from: &Address,
+    spender: &Address,
+    amount: i128,
+    expiration_ledger: u32,
+) {
     env.events().publish(
-        (Symbol::new(env, "transfer"), from.clone(), to.clone()),
-        amount,
-    );
-}
-
-pub fn approval(env: &Env, owner: &Address, spender: &Address, amount: u128) {
-    env.events().publish(
-        (Symbol::new(env, "approval"), owner.clone(), spender.clone()),
-        amount,
-    );
-}
-
-pub fn mint(env: &Env, to: &Address, amount: u128) {
-    // For mint events, use zero address as minter since minting is restricted
-    let zero_address_str = String::from_str(
-        env,
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    );
-    let zero_address = Address::from_string(&zero_address_str);
-    env.events()
-        .publish((Symbol::new(env, "mint"), zero_address, to.clone()), amount);
-}
-
-pub fn burn(env: &Env, from: &Address, amount: u128) {
-    // For burn events, use zero address as burner since burning is restricted
-    let zero_address_str = String::from_str(
-        env,
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    );
-    let zero_address = Address::from_string(&zero_address_str);
-    env.events().publish(
-        (Symbol::new(env, "burn"), from.clone(), zero_address),
-        amount,
+        (Symbol::new(env, "allowance_approved"), from.clone()),
+        (spender.clone(), amount, expiration_ledger),
     );
 }
