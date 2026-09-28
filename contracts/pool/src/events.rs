@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, BytesN, Env, String, Symbol};
+use soroban_sdk::{Address, BytesN, Env, Symbol};
 
 pub fn pool_initialized(
     env: &Env,
