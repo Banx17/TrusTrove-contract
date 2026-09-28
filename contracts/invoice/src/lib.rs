@@ -1130,8 +1130,8 @@ impl InvoiceContract {
     /// * `InvoiceError::NotFound` if the invoice cannot be found, or if the invoice has no
     ///   recorded funding pool or funding timestamp.
     /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Funded`, `Active`, or `Confirmed`.
-    /// * `InvoiceError::CrossContractCallFailed` if escrow or pool repayment accounting
-    ///   returns `false`.
+    /// * `InvoiceError::CrossContractCallFailed` if token transfer, escrow, or pool
+    ///   repayment accounting fails.
     ///
     /// # Returns
     /// * `bool` - `true` when repayment is completed.
@@ -1179,7 +1179,12 @@ impl InvoiceContract {
 
         let token = token::Client::new(&env, &invoice.funding_asset);
         // Step 1: buyer transfers amount into escrow
-        token.transfer(&invoice.buyer, &escrow, &(amount as i128));
+        if !matches!(
+            token.try_transfer(&invoice.buyer, &escrow, &(amount as i128)),
+            Ok(Ok(()))
+        ) {
+            panic_with_error!(&env, InvoiceError::CrossContractCallFailed);
+        }
 
         let new_repaid_amount = invoice
             .repaid_amount
@@ -1298,6 +1303,8 @@ impl InvoiceContract {
     /// * `InvoiceError::InvalidStatusTransition` if invoice status is not
     ///   `Confirmed`, or if `now >= due_date` (an early repayment must happen
     ///   strictly before the due date).
+    /// * `InvoiceError::CrossContractCallFailed` if token transfer, escrow, or pool
+    ///   repayment accounting fails.
     ///
     /// # Returns
     /// * `bool` - `true` when early repayment is completed.
@@ -1364,7 +1371,12 @@ impl InvoiceContract {
 
         let token = token::Client::new(&env, &funding_asset);
         // Step 1: buyer transfers face_value into escrow
-        token.transfer(&buyer, &escrow, &(face_value as i128));
+        if !matches!(
+            token.try_transfer(&buyer, &escrow, &(face_value as i128)),
+            Ok(Ok(()))
+        ) {
+            panic_with_error!(&env, InvoiceError::CrossContractCallFailed);
+        }
 
         // Step 2: escrow releases face_value back to pool
         let mut escrow_args = Vec::new(&env);

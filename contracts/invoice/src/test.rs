@@ -11,8 +11,8 @@ use soroban_sdk::{
 };
 
 use crate::{
-    InvoiceContract, InvoiceContractClient, InvoiceStatus, MAX_FACE_VALUE, TTL_EXTEND_TO,
-    TTL_THRESHOLD,
+    InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MAX_FACE_VALUE,
+    TTL_EXTEND_TO, TTL_THRESHOLD,
 };
 
 // Default invoice parameters used across tests.
@@ -2528,6 +2528,84 @@ fn test_repay_early_rejects_false_pool_result() {
     );
 
     assert!(result.is_err());
+    assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Confirmed);
+}
+
+#[test]
+fn test_repay_fails_when_funding_asset_contract_missing() {
+    let (env, client, issuer, buyer, _, _) = setup();
+    let missing_token = Address::generate(&env);
+    client.add_supported_asset(&missing_token);
+
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let invoice_id = client.create(
+        &issuer,
+        &buyer,
+        &DEFAULT_FACE_VALUE,
+        &due_date,
+        &missing_token,
+    );
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &missing_token);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &missing_token);
+    client.set_escrow_contract(&escrow);
+    client.mark_funded(&invoice_id, &pool, &missing_token, &DEFAULT_FUNDED_AMOUNT);
+    client.mark_shipped(&invoice_id);
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+
+    let result = env.try_invoke_contract::<bool, InvoiceError>(
+        &client.address,
+        &Symbol::new(&env, "repay"),
+        (invoice_id.clone(),).into_val(&env),
+    );
+
+    assert_eq!(
+        result.err().and_then(|e| e.ok()),
+        Some(InvoiceError::CrossContractCallFailed)
+    );
+    assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Confirmed);
+}
+
+#[test]
+fn test_repay_early_fails_when_funding_asset_contract_missing() {
+    let (env, client, issuer, buyer, _, _) = setup();
+    let missing_token = Address::generate(&env);
+    client.add_supported_asset(&missing_token);
+
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    let invoice_id = client.create(
+        &issuer,
+        &buyer,
+        &DEFAULT_FACE_VALUE,
+        &due_date,
+        &missing_token,
+    );
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+
+    let pool = mock_pool_with_asset(&env, &missing_token);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &missing_token);
+    client.set_escrow_contract(&escrow);
+    client.mark_funded(&invoice_id, &pool, &missing_token, &DEFAULT_FUNDED_AMOUNT);
+    client.mark_shipped(&invoice_id);
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+
+    let result = env.try_invoke_contract::<bool, InvoiceError>(
+        &client.address,
+        &Symbol::new(&env, "repay_early"),
+        (invoice_id.clone(),).into_val(&env),
+    );
+
+    assert_eq!(
+        result.err().and_then(|e| e.ok()),
+        Some(InvoiceError::CrossContractCallFailed)
+    );
     assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Confirmed);
 }
 
