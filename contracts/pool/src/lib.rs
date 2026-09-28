@@ -1809,5 +1809,4 @@ impl PoolContract {
             .extend_ttl(&lp_shares_key, TTL_THRESHOLD, TTL_EXTEND_TO);
         remaining_shares
     }
-
 }
