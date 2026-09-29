@@ -36,7 +36,16 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "J6YtHw_n"
+                      },
+                      "val": {
+                        "string": "_3e"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -164,7 +173,16 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": []
+                        "map": [
+                          {
+                            "key": {
+                              "string": "J6YtHw_n"
+                            },
+                            "val": {
+                              "string": "_3e"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -518,7 +536,16 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "J6YtHw_n"
+                      },
+                      "val": {
+                        "string": "_3e"
+                      }
+                    }
+                  ]
                 }
               ]
             }
