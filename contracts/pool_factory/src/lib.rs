@@ -56,6 +56,7 @@ impl PoolFactoryContract {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::AssetCount, &0u32);
+        events::contract_initialized(&env, &admin);
     }
 
     /// Deploys a new pool instance for an asset and records it as that asset's
@@ -188,6 +189,7 @@ impl PoolFactoryContract {
         admin.require_auth();
         Self::assert_unregistered(&env, &asset);
         Self::record_pool(&env, &asset, &pool_address);
+        events::existing_pool_registered(&env, &asset, &pool_address);
     }
 
     /// Returns the pool instance the factory manages for an asset.

@@ -197,6 +197,20 @@ fn test_initialize() {
     let admin = Address::generate(&env);
     factory_client.initialize(&admin);
 
+    let events = env.events().all();
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, factory_id);
+    assert_eq!(topics.len(), 2);
+    assert_eq!(
+        Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&env, "contract_initialized")
+    );
+    assert_eq!(
+        Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap(),
+        admin
+    );
+    let _: () = TryFromVal::try_from_val(&env, &data).unwrap();
+
     // Verify admin is stored
     env.as_contract(&factory_id, || {
         let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
@@ -375,6 +389,20 @@ fn test_register_existing_pool() {
     let pool_address = Address::generate(&env);
 
     factory_client.register_existing_pool(&asset, &pool_address);
+
+    let events = env.events().all();
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, factory_id);
+    assert_eq!(topics.len(), 2);
+    assert_eq!(
+        Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&env, "existing_pool_registered")
+    );
+    assert_eq!(
+        Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap(),
+        asset
+    );
+    assert_eq!(Address::try_from_val(&env, &data).unwrap(), pool_address);
 
     // Verify registration
     env.as_contract(&factory_id, || {
