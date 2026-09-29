@@ -232,15 +232,7 @@
                   "map": [
                     {
                       "key": {
-                        "string": "aaQCG_93rm"
-                      },
-                      "val": {
                         "string": ""
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "sF"
                       },
                       "val": {
                         "string": ""
@@ -371,15 +363,7 @@
                       "map": [
                         {
                           "key": {
-                            "string": "aaQCG_93rm"
-                          },
-                          "val": {
                             "string": ""
-                          }
-                        },
-                        {
-                          "key": {
-                            "string": "sF"
                           },
                           "val": {
                             "string": ""

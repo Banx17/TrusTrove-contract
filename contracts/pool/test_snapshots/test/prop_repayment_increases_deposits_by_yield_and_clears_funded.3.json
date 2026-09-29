@@ -83,6 +83,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }
@@ -282,7 +297,7 @@
                   "bytes": "55e1249079d8b7d4ed5bdaf46f740a2e626d2bea6a824d555b95ed73c34b337d"
                 },
                 {
-                  "u32": 167
+                  "u32": 43
                 }
               ]
             }
@@ -1164,7 +1179,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 9833000000
+                    "lo": 9957000000
                   }
                 }
               }
@@ -1206,7 +1221,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 100167000000
+                    "lo": 100043000000
                   }
                 }
               }
@@ -1604,7 +1619,7 @@
                         "symbol": "discount_bps"
                       },
                       "val": {
-                        "u32": 167
+                        "u32": 43
                       }
                     },
                     {
@@ -1633,7 +1648,7 @@
                       "val": {
                         "u128": {
                           "hi": 0,
-                          "lo": 9833000000
+                          "lo": 9957000000
                         }
                       }
                     },
@@ -1691,6 +1706,28 @@
                       },
                       "val": {
                         "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "remaining_balance"
+                      },
+                      "val": {
+                        "u128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "repaid_amount"
+                      },
+                      "val": {
+                        "u128": {
+                          "hi": 0,
+                          "lo": 10000000000
+                        }
                       }
                     },
                     {
@@ -2937,7 +2974,7 @@
                           "val": {
                             "u128": {
                               "hi": 0,
-                              "lo": 9833000000
+                              "lo": 9957000000
                             }
                           }
                         },
@@ -3296,6 +3333,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "FundingAsset"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "InvoiceContract"
                             }
                           ]
@@ -3314,6 +3363,21 @@
                         },
                         "val": {
                           "u32": 10000
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MinInitialDeposit"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u128": {
+                            "hi": 0,
+                            "lo": 10000000
+                          }
                         }
                       },
                       {
@@ -3344,6 +3408,42 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ShareDecimals"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 7
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareName"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "string": "TrusTrove USDC Pool Shares"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareSymbol"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "string": "TT-USDC"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "TotalDeposits"
                             }
                           ]
@@ -3351,7 +3451,7 @@
                         "val": {
                           "u128": {
                             "hi": 0,
-                            "lo": 100167000000
+                            "lo": 100043000000
                           }
                         }
                       },
@@ -3411,7 +3511,7 @@
                         "val": {
                           "u128": {
                             "hi": 0,
-                            "lo": 167000000
+                            "lo": 43000000
                           }
                         }
                       },
@@ -3425,18 +3525,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "UsdcAsset"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                         }
                       }
                     ]
@@ -3860,6 +3948,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }
@@ -5001,7 +5104,7 @@
                   "bytes": "55e1249079d8b7d4ed5bdaf46f740a2e626d2bea6a824d555b95ed73c34b337d"
                 },
                 {
-                  "u32": 167
+                  "u32": 43
                 }
               ]
             }
@@ -5124,7 +5227,7 @@
               }
             ],
             "data": {
-              "u32": 167
+              "u32": 43
             }
           }
         }
@@ -5233,7 +5336,7 @@
                   }
                 },
                 {
-                  "u32": 167
+                  "u32": 43
                 }
               ]
             }
@@ -5513,7 +5616,7 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 9833000000
+                    "lo": 9957000000
                   }
                 },
                 {
@@ -5555,7 +5658,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 9833000000
+                    "lo": 9957000000
                   }
                 }
               ]
@@ -5607,7 +5710,7 @@
             "data": {
               "u128": {
                 "hi": 0,
-                "lo": 9833000000
+                "lo": 9957000000
               }
             }
           }
@@ -5670,7 +5773,7 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 9833000000
+                    "lo": 9957000000
                   }
                 }
               ]
@@ -5698,7 +5801,7 @@
             "data": {
               "u128": {
                 "hi": 0,
-                "lo": 9833000000
+                "lo": 9957000000
               }
             }
           }
@@ -5747,7 +5850,7 @@
             "data": {
               "u128": {
                 "hi": 0,
-                "lo": 9833000000
+                "lo": 9957000000
               }
             }
           }
@@ -5834,7 +5937,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 90167000000
+                      "lo": 90043000000
                     }
                   }
                 },
@@ -5864,7 +5967,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 9833000000
+                      "lo": 9957000000
                     }
                   }
                 },
@@ -5906,7 +6009,7 @@
                     "symbol": "utilization_rate_bps"
                   },
                   "val": {
-                    "u32": 983
+                    "u32": 995
                   }
                 }
               ]
@@ -6472,7 +6575,7 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 167000000
+                    "lo": 43000000
                   }
                 }
               ]
@@ -6610,7 +6713,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 100167000000
+                      "lo": 100043000000
                     }
                   }
                 },
@@ -6629,7 +6732,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 100167000000
+                      "lo": 100043000000
                     }
                   }
                 },
@@ -6673,7 +6776,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 167000000
+                      "lo": 43000000
                     }
                   }
                 },

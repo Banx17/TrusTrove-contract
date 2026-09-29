@@ -5,6 +5,7 @@
 #   ./scripts/deploy.sh              # Normal deploy (skips already-deployed contracts)
 #   ./scripts/deploy.sh --resume     # Explicit resume mode (same as default)
 #   ./scripts/deploy.sh --fresh      # Ignore saved addresses and redeploy everything
+#   ./scripts/deploy.sh --dry-run    # Show what would be deployed without actually deploying
 #   ./scripts/deploy.sh --help       # Show this help
 #
 # Deployed addresses are persisted to .deployed-addresses after each successful
@@ -13,17 +14,66 @@
 
 set -euo pipefail
 
+# Load configuration from .env (falling back to .env.example) using safe
+# line-by-line parsing. Unlike `source`, this never executes arbitrary shell
+# commands, so shell metacharacters in the file cannot be used for code
+# execution (see CVE / issue #455).
+load_env() {
+  local file="$1"
+  if [ ! -f "$file" ]; then
+    echo "Warning: $file not found; skipping." >&2
+    return 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Trim surrounding whitespace
+    line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    # Skip blank lines and comments
+    [ -z "$line" ] && continue
+    case "$line" in
+      \#*) continue ;;
+    esac
+    # Only accept KEY=VALUE pairs
+    case "$line" in
+      *=*)
+        key="${line%%=*}"
+        value="${line#*=}"
+        # Trim trailing whitespace from the key
+        key="$(printf '%s' "$key" | sed 's/[[:space:]]*$//')"
+        # Strip matching surrounding quotes from the value
+        case "$value" in
+          \"*\") value="${value#\"}"; value="${value%\"}" ;;
+          \'*\') value="${value#\'}"; value="${value%\'}" ;;
+        esac
+        # Only export keys that are valid shell identifiers; anything else
+        # (e.g. keys with spaces or special characters) is skipped.
+        case "$key" in
+          *[!A-Za-z0-9_]*|'') continue ;;
+        esac
+        export "$key=$value"
+        ;;
+    esac
+  done < "$file"
+}
+
+if [ -f .env ]; then
+  load_env .env
+else
+  load_env .env.example
+fi
+
 # ---------------------------------------------------------------------------
 # 0. CLI / env setup
 # ---------------------------------------------------------------------------
 
 FRESH=false
 RESUME=false
+DRY_RUN=false
 
 for arg in "$@"; do
   case "$arg" in
     --fresh)   FRESH=true ;;
     --resume)  RESUME=true ;;
+    --dry-run) DRY_RUN=true ;;
     --help|-h)
       sed -n '2,12p' "$0" | sed 's/^# //'
       exit 0
@@ -35,20 +85,29 @@ for arg in "$@"; do
   esac
 done
 
-# Prefer a globally available `stellar` on PATH, fall back to a common WSL installation
+# Prefer a globally available `stellar` on PATH, fall back to STELLAR_BIN env var,
+# then fall back to a common WSL installation
 if command -v stellar &> /dev/null; then
   STELLAR="stellar"
+elif [ -n "${STELLAR_BIN:-}" ] && [ -f "$STELLAR_BIN" ]; then
+  STELLAR="$STELLAR_BIN"
 elif [ -f "/mnt/c/Program Files (x86)/Stellar CLI/stellar.exe" ]; then
   STELLAR="/mnt/c/Program Files (x86)/Stellar CLI/stellar.exe"
 else
-  echo "Error: stellar CLI not found on PATH or default Windows path."
+  echo "Error: stellar CLI not found."
+  echo ""
+  echo "Try one of:"
+  echo "  1. Install stellar CLI globally (https://developers.stellar.org/docs/learn/developing-with-soroban/setup)"
+  echo "  2. Set STELLAR_BIN=/path/to/stellar.exe"
+  echo "  3. On WSL, ensure 'Stellar CLI' is installed in Program Files (x86)"
+  echo ""
   exit 1
 fi
 
 if [ -f .env ]; then
-  source .env
+  load_env .env
 else
-  source .env.example
+  load_env .env.example
 fi
 
 # ---------------------------------------------------------------------------
@@ -123,6 +182,7 @@ wait_for_contract() {
 
 # deploy_contract <KEY> <WASM_PATH>
 # Deploys the wasm if KEY is not already in .deployed-addresses.
+# In dry-run mode, prints what would be done without deploying.
 # Prints the contract ID and saves it.
 deploy_contract() {
   local key="$1"
@@ -134,6 +194,12 @@ deploy_contract() {
   if [ -n "$existing" ]; then
     echo "  $key already deployed at $existing — skipping."
     echo "$existing"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo "  [DRY-RUN] Would deploy $key from $wasm"
+    echo "<dry-run>"
     return 0
   fi
 
@@ -172,6 +238,7 @@ deploy_contract() {
 # invoke_init <LABEL> <CONTRACT_ID> [-- args...]
 # Runs `stellar contract invoke` and verifies the call succeeded.
 # Skips if the KEY_initialized flag is already set in .deployed-addresses.
+# In dry-run mode, prints what would be done without invoking.
 invoke_init() {
   local label="$1"
   local contract_id="$2"
@@ -183,6 +250,11 @@ invoke_init() {
 
   if [ -n "$existing" ]; then
     echo "  $label already initialized — skipping."
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo "  [DRY-RUN] Would initialize $label ($contract_id) with: $*"
     return 0
   fi
 
@@ -234,14 +306,19 @@ DEPLOYER_ADDRESS=$("$STELLAR" keys address "$DEPLOYER_ACCOUNT" 2>&1) || {
 echo "  Deployer address : $DEPLOYER_ADDRESS"
 echo "  Addresses file   : $ADDRESSES_FILE"
 echo "  Fresh deploy     : $FRESH"
+echo "  Dry-run mode     : $DRY_RUN"
 echo ""
 
 # ---------------------------------------------------------------------------
 # 6. Build
 # ---------------------------------------------------------------------------
 
-echo "=== Building all contracts ==="
-"$STELLAR" contract build
+if [ "$DRY_RUN" = true ]; then
+  echo "=== [DRY-RUN] Skipping build ==="
+else
+  echo "=== Building all contracts ==="
+  "$STELLAR" contract build
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -280,7 +357,6 @@ invoke_init "escrow_usdc" "$ESCROW_USDC_ID" \
   -- initialize \
   --admin "$DEPLOYER_ADDRESS" \
   --pool_contract "$POOL_USDC_ID" \
-  --invoice_contract "$INVOICE_ID" \
   --usdc_asset "$USDC_ISSUER"
 
 invoke_init "pool_usdc" "$POOL_USDC_ID" \
@@ -288,15 +364,21 @@ invoke_init "pool_usdc" "$POOL_USDC_ID" \
   --admin "$DEPLOYER_ADDRESS" \
   --invoice_contract "$INVOICE_ID" \
   --escrow_contract "$ESCROW_USDC_ID" \
-  --usdc_asset "$USDC_ISSUER"
+  --funding_asset "$USDC_ISSUER" \
+  --registry_contract "$REGISTRY_ID" \
+  --treasury "$DEPLOYER_ADDRESS" \
+  --min_initial_deposit 10000000 \
+  --share_name '"TrusTrove USDC Pool Shares"' \
+  --share_symbol '"TT-USDC"' \
+  --share_decimals 7
 
 echo ""
-echo "=== Deploying XLM escrow_contract ==="
+echo "=== Deploying XLM escrow_contract (EXPERIMENTAL) ==="
 ESCROW_XLM_ID=$(deploy_contract "escrow_xlm" "target/wasm32v1-none/release/trusttrove_escrow.wasm")
 echo "XLM Escrow: $ESCROW_XLM_ID"
 
 echo ""
-echo "=== Deploying XLM pool_contract ==="
+echo "=== Deploying XLM pool_contract (EXPERIMENTAL) ==="
 POOL_XLM_ID=$(deploy_contract "pool_xlm" "target/wasm32v1-none/release/trusttrove_pool.wasm")
 echo "XLM Pool: $POOL_XLM_ID"
 
@@ -304,7 +386,6 @@ invoke_init "escrow_xlm" "$ESCROW_XLM_ID" \
   -- initialize \
   --admin "$DEPLOYER_ADDRESS" \
   --pool_contract "$POOL_XLM_ID" \
-  --invoice_contract "$INVOICE_ID" \
   --usdc_asset "$XLM_ASSET"
 
 invoke_init "pool_xlm" "$POOL_XLM_ID" \
@@ -312,7 +393,13 @@ invoke_init "pool_xlm" "$POOL_XLM_ID" \
   --admin "$DEPLOYER_ADDRESS" \
   --invoice_contract "$INVOICE_ID" \
   --escrow_contract "$ESCROW_XLM_ID" \
-  --usdc_asset "$XLM_ASSET"
+  --funding_asset "$XLM_ASSET" \
+  --registry_contract "$REGISTRY_ID" \
+  --treasury "$DEPLOYER_ADDRESS" \
+  --min_initial_deposit 10000000 \
+  --share_name '"TrusTrove XLM Pool Shares"' \
+  --share_symbol '"TT-XLM"' \
+  --share_decimals 7
 
 echo ""
 echo "=== Wiring USDC pool_contract into invoice_contract ==="
@@ -320,11 +407,53 @@ invoke_init "invoice_set_pool" "$INVOICE_ID" \
   -- set_pool_contract \
   --pool_contract "$POOL_USDC_ID"
 
+# Without the escrow wiring below, repay / repay_partial / repay_early panic
+# with InvoiceError::NotFound when reading DataKey::EscrowContract.
+echo ""
+echo "=== Wiring USDC escrow_contract into invoice_contract ==="
+invoke_init "invoice_set_escrow" "$INVOICE_ID" \
+  -- set_escrow_contract \
+  --escrow_contract "$ESCROW_USDC_ID"
+
+# Without allow-listing, create rejects every invoice with UnsupportedAsset.
+# add_supported_asset is itself idempotent on-chain (a no-op for an asset
+# that is already allow-listed).
+echo ""
+echo "=== Allow-listing USDC as a supported funding asset ==="
+invoke_init "invoice_add_asset_usdc" "$INVOICE_ID" \
+  -- add_supported_asset \
+  --asset "$USDC_ISSUER"
+
+echo ""
+echo "=== Allow-listing XLM as a supported funding asset (EXPERIMENTAL) ==="
+invoke_init "invoice_add_asset_xlm" "$INVOICE_ID" \
+  -- add_supported_asset \
+  --asset "$XLM_ASSET"
+
+# Agent-registry wiring is optional: it is only performed when
+# AGENT_REGISTRY_CONTRACT is set in .env / .env.example.  Without it,
+# submit_attestation panics with InvoiceError::NotFound and
+# list_for_financing can never unlock.
+if [ -n "${AGENT_REGISTRY_CONTRACT:-}" ]; then
+  echo ""
+  echo "=== Wiring agent_registry_contract into invoice_contract ==="
+  invoke_init "invoice_set_agent_registry" "$INVOICE_ID" \
+    -- set_agent_registry_contract \
+    --agent_registry_contract "$AGENT_REGISTRY_CONTRACT"
+else
+  echo ""
+  echo "=== AGENT_REGISTRY_CONTRACT is not set — skipping agent-registry wiring ==="
+  echo "    submit_attestation will fail until it is wired (see DEPLOYMENT.md)."
+fi
+
 # ---------------------------------------------------------------------------
 # 8. Persist final addresses to .deployed-addresses (already done per step)
 #    and write a ready-to-use .env.deployed for the frontend
 # ---------------------------------------------------------------------------
 
+if [ "$DRY_RUN" = true ]; then
+  echo "=== [DRY-RUN] Skipping .env.deployed generation ==="
+else
 ENV_OUT=".env.deployed"
 cat > "$ENV_OUT" <<EOF
 # Generated by deploy.sh on $(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -333,19 +462,38 @@ cat > "$ENV_OUT" <<EOF
 NEXT_PUBLIC_REGISTRY_CONTRACT_ID=$REGISTRY_ID
 NEXT_PUBLIC_INVOICE_CONTRACT_ID=$INVOICE_ID
 NEXT_PUBLIC_ESCROW_USDC_CONTRACT_ID=$ESCROW_USDC_ID
-NEXT_PUBLIC_ESCROW_XLM_CONTRACT_ID=$ESCROW_XLM_ID
+NEXT_PUBLIC_ESCROW_XLM_CONTRACT_ID=$ESCROW_XLM_ID # EXPERIMENTAL
 NEXT_PUBLIC_POOL_USDC_CONTRACT_ID=$POOL_USDC_ID
-NEXT_PUBLIC_POOL_XLM_CONTRACT_ID=$POOL_XLM_ID
+NEXT_PUBLIC_POOL_XLM_CONTRACT_ID=$POOL_XLM_ID # EXPERIMENTAL
 EOF
+
+JSON_OUT="deployments.json"
+cat > "$JSON_OUT" <<EOF
+{
+  "registry": "$REGISTRY_ID",
+  "invoice": "$INVOICE_ID",
+  "escrow_usdc": "$ESCROW_USDC_ID",
+  "escrow_xlm": "$ESCROW_XLM_ID",
+  "pool_usdc": "$POOL_USDC_ID",
+  "pool_xlm": "$POOL_XLM_ID",
+  "updated_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+}
+EOF
+
+if [ -f "scripts/maintainer/update-readme-addresses.sh" ]; then
+  bash scripts/maintainer/update-readme-addresses.sh
+fi
 
 echo ""
 echo "==========================================="
 echo "Deployment complete."
 echo ""
 echo "Addresses saved to: $ADDRESSES_FILE"
+echo "JSON addresses saved to: $JSON_OUT"
 echo "Frontend env saved to: $ENV_OUT"
 echo ""
 echo "Add to trusttrove-app .env.local:"
 echo ""
 cat "$ENV_OUT"
 echo "==========================================="
+fi

@@ -83,6 +83,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }
@@ -224,7 +239,7 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               ]
@@ -760,7 +775,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 99645835676315
+                    "lo": 99612530898370
                   }
                 }
               }
@@ -802,7 +817,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               }
@@ -1319,7 +1334,7 @@
                 "val": {
                   "u128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               }
@@ -1367,7 +1382,7 @@
                 "val": {
                   "u128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               }
@@ -1440,6 +1455,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "FundingAsset"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "InvoiceContract"
                             }
                           ]
@@ -1458,6 +1485,21 @@
                         },
                         "val": {
                           "u32": 10000
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MinInitialDeposit"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u128": {
+                            "hi": 0,
+                            "lo": 10000000
+                          }
                         }
                       },
                       {
@@ -1488,6 +1530,42 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ShareDecimals"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 7
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareName"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "string": "TrusTrove USDC Pool Shares"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareSymbol"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "string": "TT-USDC"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "TotalDeposits"
                             }
                           ]
@@ -1495,7 +1573,7 @@
                         "val": {
                           "u128": {
                             "hi": 0,
-                            "lo": 354164323685
+                            "lo": 387469101630
                           }
                         }
                       },
@@ -1540,7 +1618,7 @@
                         "val": {
                           "u128": {
                             "hi": 0,
-                            "lo": 354164323685
+                            "lo": 387469101630
                           }
                         }
                       },
@@ -1569,18 +1647,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "UsdcAsset"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                         }
                       }
                     ]
@@ -1971,6 +2037,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }
@@ -2606,7 +2687,7 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               ]
@@ -2645,7 +2726,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               ]
@@ -2696,13 +2777,13 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 },
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 354164323685
+                    "lo": 387469101630
                   }
                 }
               ]
@@ -2730,7 +2811,7 @@
             "data": {
               "u128": {
                 "hi": 0,
-                "lo": 354164323685
+                "lo": 387469101630
               }
             }
           }
@@ -2794,7 +2875,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 354164323685
+                      "lo": 387469101630
                     }
                   }
                 },
@@ -2813,7 +2894,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 354164323685
+                      "lo": 387469101630
                     }
                   }
                 },
@@ -2846,7 +2927,7 @@
                   "val": {
                     "u128": {
                       "hi": 0,
-                      "lo": 354164323685
+                      "lo": 387469101630
                     }
                   }
                 },

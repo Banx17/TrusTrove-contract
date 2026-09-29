@@ -83,6 +83,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }
@@ -1457,6 +1472,28 @@
                     },
                     {
                       "key": {
+                        "symbol": "remaining_balance"
+                      },
+                      "val": {
+                        "u128": {
+                          "hi": 0,
+                          "lo": 10000000000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "repaid_amount"
+                      },
+                      "val": {
+                        "u128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "repaid_at"
                       },
                       "val": "void"
@@ -2711,6 +2748,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "FundingAsset"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "InvoiceContract"
                             }
                           ]
@@ -2735,6 +2784,21 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "MinInitialDeposit"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u128": {
+                            "hi": 0,
+                            "lo": 10000000
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "ProtocolFeeBps"
                             }
                           ]
@@ -2753,6 +2817,42 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareDecimals"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 7
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareName"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "string": "TrusTrove USDC Pool Shares"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ShareSymbol"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "string": "TT-USDC"
                         }
                       },
                       {
@@ -2840,18 +2940,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "UsdcAsset"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                         }
                       }
                     ]
@@ -3242,6 +3330,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }

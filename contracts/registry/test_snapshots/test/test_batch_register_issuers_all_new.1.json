@@ -156,27 +156,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "address"
+                        "symbol": "metadata"
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        "map": []
                       }
                     },
                     {
                       "key": {
-                        "symbol": "metadata"
+                        "symbol": "packed_flags"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "name"
-                            },
-                            "val": {
-                              "string": "Issuer 1"
-                            }
-                          }
-                        ]
+                        "u32": 0
                       }
                     },
                     {
@@ -186,26 +177,6 @@
                       "val": {
                         "u64": 0
                       }
-                    },
-                    {
-                      "key": {
-                        "symbol": "role"
-                      },
-                      "val": {
-                        "vec": [
-                          {
-                            "symbol": "Issuer"
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "verified"
-                      },
-                      "val": {
-                        "bool": true
-                      }
                     }
                   ]
                 }
@@ -213,7 +184,7 @@
             },
             "ext": "v0"
           },
-          4095
+          2000000
         ]
       ],
       [
@@ -255,27 +226,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "address"
+                        "symbol": "metadata"
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                        "map": []
                       }
                     },
                     {
                       "key": {
-                        "symbol": "metadata"
+                        "symbol": "packed_flags"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "name"
-                            },
-                            "val": {
-                              "string": "Issuer 2"
-                            }
-                          }
-                        ]
+                        "u32": 0
                       }
                     },
                     {
@@ -285,26 +247,6 @@
                       "val": {
                         "u64": 0
                       }
-                    },
-                    {
-                      "key": {
-                        "symbol": "role"
-                      },
-                      "val": {
-                        "vec": [
-                          {
-                            "symbol": "Issuer"
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "verified"
-                      },
-                      "val": {
-                        "bool": true
-                      }
                     }
                   ]
                 }
@@ -312,7 +254,7 @@
             },
             "ext": "v0"
           },
-          4095
+          2000000
         ]
       ],
       [
@@ -354,27 +296,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "address"
+                        "symbol": "metadata"
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                        "map": []
                       }
                     },
                     {
                       "key": {
-                        "symbol": "metadata"
+                        "symbol": "packed_flags"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "name"
-                            },
-                            "val": {
-                              "string": "Issuer 3"
-                            }
-                          }
-                        ]
+                        "u32": 0
                       }
                     },
                     {
@@ -384,26 +317,6 @@
                       "val": {
                         "u64": 0
                       }
-                    },
-                    {
-                      "key": {
-                        "symbol": "role"
-                      },
-                      "val": {
-                        "vec": [
-                          {
-                            "symbol": "Issuer"
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "verified"
-                      },
-                      "val": {
-                        "bool": true
-                      }
                     }
                   ]
                 }
@@ -411,7 +324,7 @@
             },
             "ext": "v0"
           },
-          4095
+          2000000
         ]
       ],
       [
@@ -456,7 +369,7 @@
             },
             "ext": "v0"
           },
-          4095
+          2000000
         ]
       ],
       [
@@ -543,7 +456,7 @@
             },
             "ext": "v0"
           },
-          4095
+          2000000
         ]
       ]
     ]
@@ -570,6 +483,27 @@
             "data": {
               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
             }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "contract_initialized"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              }
+            ],
+            "data": "void"
           }
         }
       },
@@ -747,6 +681,33 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "batch_registered"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "u32": 3
+                },
+                {
+                  "u32": 0
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -808,7 +769,7 @@
               }
             ],
             "data": {
-              "bool": true
+              "bool": false
             }
           }
         }
@@ -857,7 +818,7 @@
               }
             ],
             "data": {
-              "bool": true
+              "bool": false
             }
           }
         }
@@ -906,7 +867,7 @@
               }
             ],
             "data": {
-              "bool": true
+              "bool": false
             }
           }
         }
@@ -958,27 +919,18 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "address"
+                    "symbol": "metadata"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    "map": []
                   }
                 },
                 {
                   "key": {
-                    "symbol": "metadata"
+                    "symbol": "packed_flags"
                   },
                   "val": {
-                    "map": [
-                      {
-                        "key": {
-                          "string": "name"
-                        },
-                        "val": {
-                          "string": "Issuer 1"
-                        }
-                      }
-                    ]
+                    "u32": 0
                   }
                 },
                 {
@@ -987,26 +939,6 @@
                   },
                   "val": {
                     "u64": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "role"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "symbol": "Issuer"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "verified"
-                  },
-                  "val": {
-                    "bool": true
                   }
                 }
               ]
@@ -1061,27 +993,18 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "address"
+                    "symbol": "metadata"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    "map": []
                   }
                 },
                 {
                   "key": {
-                    "symbol": "metadata"
+                    "symbol": "packed_flags"
                   },
                   "val": {
-                    "map": [
-                      {
-                        "key": {
-                          "string": "name"
-                        },
-                        "val": {
-                          "string": "Issuer 2"
-                        }
-                      }
-                    ]
+                    "u32": 0
                   }
                 },
                 {
@@ -1090,26 +1013,6 @@
                   },
                   "val": {
                     "u64": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "role"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "symbol": "Issuer"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "verified"
-                  },
-                  "val": {
-                    "bool": true
                   }
                 }
               ]
@@ -1164,27 +1067,18 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "address"
+                    "symbol": "metadata"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                    "map": []
                   }
                 },
                 {
                   "key": {
-                    "symbol": "metadata"
+                    "symbol": "packed_flags"
                   },
                   "val": {
-                    "map": [
-                      {
-                        "key": {
-                          "string": "name"
-                        },
-                        "val": {
-                          "string": "Issuer 3"
-                        }
-                      }
-                    ]
+                    "u32": 0
                   }
                 },
                 {
@@ -1193,26 +1087,6 @@
                   },
                   "val": {
                     "u64": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "role"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "symbol": "Issuer"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "verified"
-                  },
-                  "val": {
-                    "bool": true
                   }
                 }
               ]

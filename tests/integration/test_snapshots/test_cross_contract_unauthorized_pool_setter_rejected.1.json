@@ -205,6 +205,21 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                },
+                {
+                  "string": "TrusTrove USDC Pool Shares"
+                },
+                {
+                  "string": "TT-USDC"
+                },
+                {
+                  "u32": 7
                 }
               ]
             }
@@ -448,6 +463,21 @@
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                    },
+                    {
+                      "u128": {
+                        "hi": 0,
+                        "lo": 10000000
+                      }
+                    },
+                    {
+                      "string": "TrusTrove USDC Pool Shares"
+                    },
+                    {
+                      "string": "TT-USDC"
+                    },
+                    {
+                      "u32": 7
                     }
                   ]
                 }

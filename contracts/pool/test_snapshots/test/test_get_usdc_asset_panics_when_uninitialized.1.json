@@ -109,7 +109,7 @@
               }
             ],
             "data": {
-              "string": "caught panic 'pool is not initialized: USDC asset missing' from contract function 'Symbol(obj#5)'"
+              "string": "caught panic 'pool is not initialized: funding asset missing' from contract function 'Symbol(obj#5)'"
             }
           }
         }
