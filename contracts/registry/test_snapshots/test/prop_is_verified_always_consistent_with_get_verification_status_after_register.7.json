@@ -36,48 +36,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "LG_NU7T_h9"
-                      },
-                      "val": {
-                        "string": "8____V30Mplzyq_W0"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "W_"
-                      },
-                      "val": {
-                        "string": "n3BK6_UK21338__0U_"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "YyZW0_"
-                      },
-                      "val": {
-                        "string": "dw"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "_7Um"
-                      },
-                      "val": {
-                        "string": "_8_G3da_j"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "b51UL"
-                      },
-                      "val": {
-                        "string": "5wtU8_wjEbU3C_Ey"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }
@@ -141,48 +100,7 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "LG_NU7T_h9"
-                            },
-                            "val": {
-                              "string": "8____V30Mplzyq_W0"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "W_"
-                            },
-                            "val": {
-                              "string": "n3BK6_UK21338__0U_"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "YyZW0_"
-                            },
-                            "val": {
-                              "string": "dw"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "_7Um"
-                            },
-                            "val": {
-                              "string": "_8_G3da_j"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "b51UL"
-                            },
-                            "val": {
-                              "string": "5wtU8_wjEbU3C_Ey"
-                            }
-                          }
-                        ]
+                        "map": []
                       }
                     },
                     {
@@ -437,48 +355,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "LG_NU7T_h9"
-                      },
-                      "val": {
-                        "string": "8____V30Mplzyq_W0"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "W_"
-                      },
-                      "val": {
-                        "string": "n3BK6_UK21338__0U_"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "YyZW0_"
-                      },
-                      "val": {
-                        "string": "dw"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "_7Um"
-                      },
-                      "val": {
-                        "string": "_8_G3da_j"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "b51UL"
-                      },
-                      "val": {
-                        "string": "5wtU8_wjEbU3C_Ey"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }

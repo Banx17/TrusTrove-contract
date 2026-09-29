@@ -36,24 +36,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "_2m_tkONJD"
-                      },
-                      "val": {
-                        "string": "A41YJdl7"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "w_HA8"
-                      },
-                      "val": {
-                        "string": "gJU202"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }
@@ -117,24 +100,7 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "_2m_tkONJD"
-                            },
-                            "val": {
-                              "string": "A41YJdl7"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "w_HA8"
-                            },
-                            "val": {
-                              "string": "gJU202"
-                            }
-                          }
-                        ]
+                        "map": []
                       }
                     },
                     {
@@ -389,24 +355,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "_2m_tkONJD"
-                      },
-                      "val": {
-                        "string": "A41YJdl7"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "w_HA8"
-                      },
-                      "val": {
-                        "string": "gJU202"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }

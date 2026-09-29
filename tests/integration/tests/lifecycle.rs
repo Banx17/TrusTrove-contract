@@ -756,13 +756,19 @@ fn test_partial_repayment_then_default_lifecycle() {
     let res = invoice.repay_partial(&inv_id, &partial_repayment);
     assert!(res);
     assert_eq!(invoice.get_status(&inv_id), InvoiceStatus::Confirmed as u32);
-    assert_eq!(invoice.get_remaining_balance(&inv_id), face_value - partial_repayment);
+    assert_eq!(
+        invoice.get_remaining_balance(&inv_id),
+        face_value - partial_repayment
+    );
     assert_eq!(invoice.get_repaid_amount(&inv_id), partial_repayment);
 
     // Verify escrow now holds funded_amount + partial_repayment
     let token = MockTokenClient::new(&env, &usdc_id);
     let escrow_balance_after_partial = token.balance(&escrow_id);
-    assert_eq!(escrow_balance_after_partial, funded_amount as i128 + partial_repayment as i128);
+    assert_eq!(
+        escrow_balance_after_partial,
+        funded_amount as i128 + partial_repayment as i128
+    );
 
     // 9. Advance time past due_date AND escrow grace period (60 seconds)
     // escrow DEFAULT_MIN_LOCK_SECONDS = 60, so we need locked_at + 60 < now
@@ -778,22 +784,40 @@ fn test_partial_repayment_then_default_lifecycle() {
 
     // 11. Assert invoice repaid_amount and remaining_balance are preserved
     assert_eq!(invoice.get_repaid_amount(&inv_id), partial_repayment);
-    assert_eq!(invoice.get_remaining_balance(&inv_id), face_value - partial_repayment);
+    assert_eq!(
+        invoice.get_remaining_balance(&inv_id),
+        face_value - partial_repayment
+    );
 
     // 12. Assert pool stats reflect correct loss (funded_amount - repaid_amount), not full funded_amount
     let pool_stats = pool.get_stats();
     let expected_loss = funded_amount.saturating_sub(partial_repayment);
-    assert_eq!(pool_stats.total_loss_realised, expected_loss, "LP loss should only be the unpaid funded amount");
-    assert_eq!(pool_stats.total_funded, 0, "no active invoices after default");
-    assert_eq!(pool_stats.active_invoice_count, 0, "active invoice count should be zero");
+    assert_eq!(
+        pool_stats.total_loss_realised, expected_loss,
+        "LP loss should only be the unpaid funded amount"
+    );
+    assert_eq!(
+        pool_stats.total_funded, 0,
+        "no active invoices after default"
+    );
+    assert_eq!(
+        pool_stats.active_invoice_count, 0,
+        "active invoice count should be zero"
+    );
 
     // 13. Assert pool token balance reflects partial repayment received
     let pool_token_balance = token.balance(&pool_id);
-    assert_eq!(pool_token_balance, (deposit_amount as i128) - (expected_loss as i128));
+    assert_eq!(
+        pool_token_balance,
+        (deposit_amount as i128) - (expected_loss as i128)
+    );
 
     // 14. Assert escrow token balance is zero (all funds released to pool)
     let escrow_token_balance = token.balance(&escrow_id);
-    assert_eq!(escrow_token_balance, 0, "escrow should not strand funds after default");
+    assert_eq!(
+        escrow_token_balance, 0,
+        "escrow should not strand funds after default"
+    );
 
     // 15. LP withdrawal should reflect correct principal after loss
     let _lp_position_before = pool.get_lp_position(&lp);
@@ -928,13 +952,19 @@ fn test_partial_repayment_then_default_pool_loss_calculation() {
     let res = invoice.repay_partial(&inv_id, &partial_repayment);
     assert!(res);
     assert_eq!(invoice.get_status(&inv_id), InvoiceStatus::Confirmed as u32);
-    assert_eq!(invoice.get_remaining_balance(&inv_id), face_value - partial_repayment);
+    assert_eq!(
+        invoice.get_remaining_balance(&inv_id),
+        face_value - partial_repayment
+    );
     assert_eq!(invoice.get_repaid_amount(&inv_id), partial_repayment);
 
     // Verify escrow now holds funded_amount + partial_repayment
     let token = MockTokenClient::new(&env, &usdc_id);
     let escrow_balance_after_partial = token.balance(&escrow_id);
-    assert_eq!(escrow_balance_after_partial, funded_amount as i128 + partial_repayment as i128);
+    assert_eq!(
+        escrow_balance_after_partial,
+        funded_amount as i128 + partial_repayment as i128
+    );
 
     // 9. Advance time past due_date AND escrow grace period (60 seconds)
     env.ledger().set_timestamp(due_date + 60);
@@ -950,22 +980,40 @@ fn test_partial_repayment_then_default_pool_loss_calculation() {
 
     // 12. Assert invoice repaid_amount and remaining_balance are preserved
     assert_eq!(invoice.get_repaid_amount(&inv_id), partial_repayment);
-    assert_eq!(invoice.get_remaining_balance(&inv_id), face_value - partial_repayment);
+    assert_eq!(
+        invoice.get_remaining_balance(&inv_id),
+        face_value - partial_repayment
+    );
 
     // 13. Assert pool stats reflect correct loss (funded_amount - repaid_amount), not full funded_amount
     let pool_stats = pool.get_stats();
     let expected_loss = funded_amount.saturating_sub(partial_repayment);
-    assert_eq!(pool_stats.total_loss_realised, expected_loss, "LP loss should only be the unpaid funded amount");
-    assert_eq!(pool_stats.total_funded, 0, "no active invoices after default");
-    assert_eq!(pool_stats.active_invoice_count, 0, "active invoice count should be zero");
+    assert_eq!(
+        pool_stats.total_loss_realised, expected_loss,
+        "LP loss should only be the unpaid funded amount"
+    );
+    assert_eq!(
+        pool_stats.total_funded, 0,
+        "no active invoices after default"
+    );
+    assert_eq!(
+        pool_stats.active_invoice_count, 0,
+        "active invoice count should be zero"
+    );
 
     // 14. Assert pool token balance reflects partial repayment received
     let pool_token_balance = token.balance(&pool_id);
-    assert_eq!(pool_token_balance, (deposit_amount as i128) - (expected_loss as i128));
+    assert_eq!(
+        pool_token_balance,
+        (deposit_amount as i128) - (expected_loss as i128)
+    );
 
     // 15. Assert escrow token balance is zero (all funds released to pool)
     let escrow_token_balance = token.balance(&escrow_id);
-    assert_eq!(escrow_token_balance, 0, "escrow should not strand funds after default");
+    assert_eq!(
+        escrow_token_balance, 0,
+        "escrow should not strand funds after default"
+    );
 
     // 16. LP withdrawal should reflect correct principal after loss
     let returned = pool.withdraw(&lp, &shares);

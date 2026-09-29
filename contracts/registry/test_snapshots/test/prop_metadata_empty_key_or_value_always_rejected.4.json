@@ -232,23 +232,7 @@
                   "map": [
                     {
                       "key": {
-                        "string": "XDB78"
-                      },
-                      "val": {
-                        "string": ""
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "f0_"
-                      },
-                      "val": {
-                        "string": ""
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "nh"
+                        "string": "P23"
                       },
                       "val": {
                         "string": ""
@@ -379,23 +363,7 @@
                       "map": [
                         {
                           "key": {
-                            "string": "XDB78"
-                          },
-                          "val": {
-                            "string": ""
-                          }
-                        },
-                        {
-                          "key": {
-                            "string": "f0_"
-                          },
-                          "val": {
-                            "string": ""
-                          }
-                        },
-                        {
-                          "key": {
-                            "string": "nh"
+                            "string": "P23"
                           },
                           "val": {
                             "string": ""

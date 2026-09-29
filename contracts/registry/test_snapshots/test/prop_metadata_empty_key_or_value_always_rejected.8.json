@@ -237,14 +237,6 @@
                       "val": {
                         "string": ""
                       }
-                    },
-                    {
-                      "key": {
-                        "string": "x4r"
-                      },
-                      "val": {
-                        "string": "3ua6"
-                      }
                     }
                   ]
                 }
@@ -375,14 +367,6 @@
                           },
                           "val": {
                             "string": ""
-                          }
-                        },
-                        {
-                          "key": {
-                            "string": "x4r"
-                          },
-                          "val": {
-                            "string": "3ua6"
                           }
                         }
                       ]
