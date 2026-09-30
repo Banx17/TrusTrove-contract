@@ -187,9 +187,7 @@ impl PoolContract {
         env.storage()
             .instance()
             .set(&DataKey::MaxUtilizationBps, &DEFAULT_MAX_UTILIZATION_BPS);
-        env.storage()
-            .instance()
-            .set(&DataKey::FeeBps, &0u32); // Default to 0% fee
+        env.storage().instance().set(&DataKey::FeeBps, &0u32); // Default to 0% fee
         env.storage()
             .instance()
             .set(&DataKey::TotalLossRealised, &0u128);
@@ -375,7 +373,6 @@ impl PoolContract {
     /// ```
     pub fn get_fee_bps(env: Env) -> u32 {
         Self::fee_bps(&env).expect("pool is not initialized: fee bps missing")
-    }
     }
 
     /// Returns the treasury address for protocol fee distribution.
@@ -1864,8 +1861,14 @@ impl PoolContract {
 
         let yield_amount = amount - funded_amount - refund;
 
-        // Calculate protocol fee split
-        let fee_bps = Self::fee_bps(env).unwrap_or(0);
+        // Calculate protocol fee split. `ProtocolFeeBps` is the live slot
+        // written by `set_protocol_fee`; the legacy `DataKey::FeeBps` slot is
+        // always zero and is no longer consulted here.
+        let fee_bps = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProtocolFeeBps)
+            .unwrap_or(0u32);
         let protocol_cut = if fee_bps > 0 {
             yield_amount
                 .checked_mul(fee_bps as u128)
@@ -1880,18 +1883,6 @@ impl PoolContract {
         let total_deposits = totals.deposits;
         let total_funded = totals.funded;
         let total_yield = totals.yield_distributed;
-
-        let fee_bps = env
-            .storage()
-            .instance()
-            .get(&DataKey::ProtocolFeeBps)
-            .unwrap_or(0u32);
-        let protocol_cut = if fee_bps > 0 {
-            yield_amount * (fee_bps as u128) / 10_000
-        } else {
-            0
-        };
-        let lp_yield = yield_amount - protocol_cut;
 
         if protocol_cut > 0 {
             if let Some(treasury) = env
@@ -1980,3 +1971,4 @@ impl PoolContract {
             .extend_ttl(&lp_shares_key, TTL_THRESHOLD, TTL_EXTEND_TO);
         remaining_shares
     }
+}

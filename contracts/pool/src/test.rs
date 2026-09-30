@@ -3265,7 +3265,6 @@ fn test_double_initialize_panics() {
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_id, &usdc_id);
 
     // First pool initialize — succeeds with explicit auth
-    let treasury_address = Address::generate(&env);
     env.mock_auths(&[MockAuth {
         address: &admin,
         invoke: &MockAuthInvoke {
@@ -3804,7 +3803,6 @@ fn test_initialize_emits_pool_initialized_event() {
     let usdc_id = env.register_contract(None, MockToken);
 
     RealInvoiceClient::new(&env, &invoice_id).initialize(&admin, &registry_id);
-    let treasury_address = Address::generate(&env);
     let pool_addr = env.register_contract(None, PoolContract);
     RealEscrowClient::new(&env, &escrow_id).initialize(&admin, &pool_addr, &usdc_id);
 
