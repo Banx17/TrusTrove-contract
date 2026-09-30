@@ -62,6 +62,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::AlreadyInitialized` if the contract has already been initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the registry address equals
+    ///   the admin or this invoice contract.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -75,6 +77,7 @@ impl InvoiceContract {
             panic_with_error!(&env, InvoiceError::AlreadyInitialized);
         }
         admin.require_auth();
+        Self::assert_valid_wiring_address(&env, &registry_contract, &admin, None, Vec::new(&env));
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -139,6 +142,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the admin is not initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the pool address aliases the
+    ///   admin, this invoice contract, registry, escrow, or agent registry.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -154,6 +159,25 @@ impl InvoiceContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryContract);
+        let mut other_wired_contracts = Vec::new(&env);
+        if let Some(escrow) = env.storage().instance().get(&DataKey::EscrowContract) {
+            other_wired_contracts.push_back(escrow);
+        }
+        if let Some(agent_registry) = env
+            .storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract)
+        {
+            other_wired_contracts.push_back(agent_registry);
+        }
+        Self::assert_valid_wiring_address(
+            &env,
+            &pool_contract,
+            &admin,
+            registry,
+            other_wired_contracts,
+        );
         let old_pool: Option<Address> = env.storage().instance().get(&DataKey::PoolContract);
         env.storage()
             .instance()
@@ -204,6 +228,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the admin is not initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the agent-registry address
+    ///   aliases the admin, this invoice contract, registry, pool, or escrow.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -219,6 +245,21 @@ impl InvoiceContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryContract);
+        let mut other_wired_contracts = Vec::new(&env);
+        if let Some(pool) = env.storage().instance().get(&DataKey::PoolContract) {
+            other_wired_contracts.push_back(pool);
+        }
+        if let Some(escrow) = env.storage().instance().get(&DataKey::EscrowContract) {
+            other_wired_contracts.push_back(escrow);
+        }
+        Self::assert_valid_wiring_address(
+            &env,
+            &agent_registry_contract,
+            &admin,
+            registry,
+            other_wired_contracts,
+        );
         let old: Option<Address> = env
             .storage()
             .instance()
@@ -277,6 +318,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the admin is not initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the escrow address aliases
+    ///   the admin, this invoice contract, registry, pool, or agent registry.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -287,6 +330,26 @@ impl InvoiceContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryContract);
+        let mut other_wired_contracts = Vec::new(&env);
+        if let Some(pool) = env.storage().instance().get(&DataKey::PoolContract) {
+            other_wired_contracts.push_back(pool);
+        }
+        if let Some(agent_registry) = env
+            .storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract)
+        {
+            other_wired_contracts.push_back(agent_registry);
+        }
+        Self::assert_valid_wiring_address(
+            &env,
+            &escrow_contract,
+            &admin,
+            registry,
+            other_wired_contracts,
+        );
 
         let old_escrow: Option<Address> = env.storage().instance().get(&DataKey::EscrowContract);
         env.storage()
@@ -1625,16 +1688,42 @@ impl InvoiceContract {
             .unwrap_or(7 * 24 * 60 * 60)
     }
 
-    /// Helper to check authorization for a given address.
-    /// This is invoked dynamically via `try_invoke_contract` in `expire_listing`.
-    /// Rust's dead-code analysis can't see the dynamic dispatch via `Symbol`, so
-    /// the `#[allow(dead_code)]` keeps it in the WASM dispatch table.
-    #[allow(dead_code)]
-    fn check_auth(_env: Env, address: Address) {
-        address.require_auth();
-    }
+    /// Expires a listing whose expiry window has passed.
+    ///
+    /// Callable by the invoice's stored issuer or the contract admin — the
+    /// same dual-caller pattern as `confirm_delivery` and escrow's
+    /// `handle_default`: `caller` must explicitly authorize, and is then
+    /// verified against the stored issuer and admin. The previous
+    /// `try_invoke_contract`-based issuer probe (a private `check_auth`
+    /// self-call) violated Soroban's no-re-entry rule under real signatures,
+    /// so the issuer path could never authenticate outside mocked tests.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `invoice_id` - The invoice whose listing should be expired.
+    /// * `caller` - The address authorizing the expiry (issuer or admin).
+    ///
+    /// # Auth
+    /// Requires authorization from `caller`, who must be the invoice's stored
+    /// issuer or the stored admin address.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotFound` if the invoice or admin cannot be found.
+    /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Listed`.
+    /// * `InvoiceError::NotAuthorized` if `caller` is neither the issuer nor the admin.
+    /// * `InvoiceError::ListingNotExpired` if `now < listed_at + expiry_window`.
+    /// * `InvoiceError::MathOverflow` if `listed_at + expiry_window` overflows.
+    ///
+    /// # Returns
+    /// * `bool` - `true` when the listing is expired.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.expire_listing(&invoice_id, &issuer);
+    /// ```
+    pub fn expire_listing(env: Env, invoice_id: BytesN<32>, caller: Address) -> bool {
+        caller.require_auth();
 
-    pub fn expire_listing(env: Env, invoice_id: BytesN<32>) -> bool {
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1652,16 +1741,8 @@ impl InvoiceContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
 
-        let is_issuer = env
-            .try_invoke_contract::<(), soroban_sdk::Error>(
-                &env.current_contract_address(),
-                &Symbol::new(&env, "check_auth"),
-                (invoice.issuer.clone(),).into_val(&env),
-            )
-            .is_ok();
-
-        if !is_issuer {
-            admin.require_auth();
+        if caller != invoice.issuer && caller != admin {
+            panic_with_error!(&env, InvoiceError::NotAuthorized);
         }
 
         let listed_at = invoice.listed_at.unwrap_or(0);
@@ -1966,6 +2047,66 @@ impl InvoiceContract {
         hydrate_ids(&env, ids)
     }
 
+    /// Returns the number of invoices created by a given issuer.
+    ///
+    /// Reads only the issuer index counter, so it is much cheaper than
+    /// [`get_by_issuer`](Self::get_by_issuer), which hydrates every record.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `address` - The issuer address.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `u32` - The number of invoices issued by `address`, or `0` if the
+    ///   address has never issued an invoice.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let count = client.get_invoice_count_by_issuer(&issuer);
+    /// ```
+    pub fn get_invoice_count_by_issuer(env: Env, address: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::IssuerIndexCount(address))
+            .unwrap_or(0)
+    }
+
+    /// Returns the number of invoices associated with a given buyer.
+    ///
+    /// Reads only the buyer index counter, so it is much cheaper than
+    /// [`get_by_buyer`](Self::get_by_buyer), which hydrates every record.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `address` - The buyer address.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `u32` - The number of invoices bought by `address`, or `0` if the
+    ///   address has never bought an invoice.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let count = client.get_invoice_count_by_buyer(&buyer);
+    /// ```
+    pub fn get_invoice_count_by_buyer(env: Env, address: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::BuyerIndexCount(address))
+            .unwrap_or(0)
+    }
+
     /// Returns a map of invoice counts keyed by status name.
     ///
     /// # Arguments
@@ -2087,6 +2228,28 @@ impl InvoiceContract {
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         events::ownership_transferred(&env, &admin, &new_admin);
         Self::extend_instance_ttl(&env);
+    }
+
+    /// Rejects wiring an address that aliases a reserved or already-configured
+    /// contract role. `other_wired_contracts` excludes the slot being updated.
+    fn assert_valid_wiring_address(
+        env: &Env,
+        candidate: &Address,
+        admin: &Address,
+        registry_contract: Option<Address>,
+        other_wired_contracts: Vec<Address>,
+    ) {
+        if candidate == admin
+            || candidate == &env.current_contract_address()
+            || registry_contract.as_ref() == Some(candidate)
+        {
+            panic_with_error!(env, InvoiceError::InvalidConfiguration);
+        }
+        for configured in other_wired_contracts {
+            if &configured == candidate {
+                panic_with_error!(env, InvoiceError::InvalidConfiguration);
+            }
+        }
     }
 
     fn require_initialized(env: &Env) {

@@ -83,11 +83,10 @@ impl PoolContract {
     ///
     /// # Panics
     /// * `AlreadyInitialized` if the contract has already been initialized.
-    /// * `InvalidConfiguration` if any two of `admin`, `invoice_contract`,
-    ///   `escrow_contract`, `funding_asset`, and `registry_contract` are the
-    ///   same address, or if `share_name`/`share_symbol` is empty (a wallet
-    ///   that cannot render the share token is treated as a misconfigured
-    ///   deploy rather than a pool to be lived with).
+    /// * `InvalidConfiguration` if core contract addresses collide, if
+    ///   `treasury` equals the pool itself or any settlement contract address,
+    ///   or if `share_name`/`share_symbol` is empty (a wallet that cannot render
+    ///   the share token is treated as a misconfigured deploy).
     /// * `EscrowAssetMismatch` if `escrow_contract`'s configured USDC asset
     ///   does not match `funding_asset`.
     ///
@@ -138,6 +137,14 @@ impl PoolContract {
         if share_name.is_empty() || share_symbol.is_empty() {
             panic_with_error!(&env, PoolError::InvalidConfiguration);
         }
+        Self::assert_valid_treasury(
+            &env,
+            &treasury,
+            &invoice_contract,
+            &escrow_contract,
+            &funding_asset,
+            &registry_contract,
+        );
 
         // Cross-check that the escrow contract being wired in was itself
         // initialized with the same funding_asset. A mismatch here would only
@@ -506,7 +513,7 @@ impl PoolContract {
         let usdc = token::Client::new(&env, &usdc_id);
         usdc.transfer(&lp, &env.current_contract_address(), &(usdc_amount as i128));
 
-        Self::mint(&env, &lp, shares_to_issue);
+        Self::_mint(&env, &lp, shares_to_issue);
         env.storage()
             .instance()
             .set(&DataKey::TotalDeposits, &(total_deposits + usdc_amount));
@@ -534,7 +541,6 @@ impl PoolContract {
             .extend_ttl(&lp_init_key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
         events::lp_deposited(&env, &lp, usdc_amount, shares_to_issue);
-        Self::extend_instance_ttl(&env);
         shares_to_issue
     }
 
@@ -614,7 +620,7 @@ impl PoolContract {
             &(usdc_to_return as i128),
         );
 
-        let remaining_shares = Self::burn(&env, &lp, shares);
+        let remaining_shares = Self::_burn(&env, &lp, shares);
         env.storage()
             .instance()
             .set(&DataKey::TotalDeposits, &(total_deposits - usdc_to_return));
@@ -655,11 +661,66 @@ impl PoolContract {
             .extend_ttl(&yield_key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
         events::lp_withdrawn(&env, &lp, usdc_to_return, shares);
-        Self::extend_instance_ttl(&env);
         usdc_to_return
     }
 
+    /// Moves `amount` LP shares from `from` to `to` — the standard SEP-41
+    /// `transfer` entry point.
+    ///
+    /// This is the function generic `soroban_sdk::token::Client` integrations
+    /// call. It shares one balance-movement path with `transfer_from`
+    /// (`Self::move_shares`), so authorization, balance checks, and the
+    /// `shares_transferred` event behave identically on both routes. A
+    /// previous attempt introduced two competing `transfer` definitions (the
+    /// SEP-41 entry point and `transfer_shares` logic under the same name);
+    /// this single entry point plus the shared `move_shares` helper is the
+    /// duplicate-free resolution.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `from` - The address transferring shares (must authorize).
+    /// * `to` - The address receiving shares.
+    /// * `amount` - The number of shares to move.
+    ///
+    /// # Auth
+    /// Requires authorization from `from` (via `from.require_auth()`).
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool is not initialized.
+    /// * `InvalidAmount` if `amount` is zero or negative.
+    /// * `NoShares` if `from` has no shares.
+    /// * `InsufficientBalance` if `from` does not own enough shares.
+    ///
+    /// # Returns
+    /// * `()` - No value is returned. Emits `shares_transferred`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let shares_token = soroban_sdk::token::Client::new(&env, &pool_id);
+    /// shares_token.transfer(&lp, &recipient, &5_000_000_000);
+    /// ```
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        Self::require_initialized(&env);
+        from.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, PoolError::InvalidAmount);
+        }
+
+        Self::move_shares(&env, &from, &to, amount as u128);
+        events::shares_transferred(&env, &from, &to, amount);
+        Self::extend_instance_ttl(&env);
+    }
+
     /// Transfers LP shares from one address to another.
+    ///
+    /// # Non-standard
+    /// This is a **legacy, non-standard** entry point kept for existing
+    /// integrators that predate the SEP-41 share-token surface. It performs
+    /// exactly the same checks and movement as the standard
+    /// [`Self::transfer`] (same `from.require_auth()`, same `move_shares`
+    /// path, same events) but takes `amount: i128` purely for historical
+    /// call-signature compatibility. New integrations — especially generic
+    /// `soroban_sdk::token::Client` consumers — must use [`Self::transfer`].
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
@@ -673,6 +734,21 @@ impl PoolContract {
     /// # Panics
     /// * `InvalidAmount` if `amount` is zero.
     /// * `NoShares` if `from` has no shares.
+    /// Transfers shares from one address to another.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `from` - The source address.
+    /// * `to` - The destination address.
+    /// * `amount` - The amount to transfer (can be negative for reverse accounting in specific contexts).
+    ///
+    /// # Auth
+    /// Requires authorization from `from`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool is not initialized.
+    /// * `InvalidAmount` if `amount` is zero or negative.
+    /// * `NoShares` if `from` has no shares.
     /// * `InsufficientBalance` if `from` does not own enough shares.
     ///
     /// # Returns
@@ -680,9 +756,12 @@ impl PoolContract {
     ///
     /// # Example
     /// ```ignore
-    /// client.transfer(&from, &to, 100);
+    /// client.transfer_shares(&from, &to, 100);
     /// ```
-    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+    ///
+    /// Note: This function accepts i128 to allow for negative amounts in internal accounting,
+    /// but negative amounts are rejected as invalid for standard transfers.
+    pub fn transfer_shares(env: Env, from: Address, to: Address, amount: i128) {
         Self::require_initialized(&env);
         from.require_auth();
         if amount <= 0 {
@@ -690,6 +769,7 @@ impl PoolContract {
         }
 
         Self::move_shares(&env, &from, &to, amount as u128);
+        events::shares_transferred(&env, &from, &to, amount);
         Self::extend_instance_ttl(&env);
     }
 
@@ -852,6 +932,7 @@ impl PoolContract {
         }
 
         Self::move_shares(&env, &from, &to, amount as u128);
+        events::shares_transferred(&env, &from, &to, amount);
         Self::extend_instance_ttl(&env);
     }
 
@@ -1571,6 +1652,8 @@ impl PoolContract {
     /// # Panics
     /// * `NotInitialized` if the pool is not initialized.
     /// * `FeeTooHigh` if `fee_bps` exceeds `MAX_PROTOCOL_FEE_BPS` (2000 bps).
+    /// * `InvalidConfiguration` if `treasury` is the pool, invoice, escrow,
+    ///   registry, or funding-asset address.
     ///
     /// # Returns
     /// * `bool` - `true` when the fee is updated.
@@ -1581,6 +1664,18 @@ impl PoolContract {
         if fee_bps > MAX_PROTOCOL_FEE_BPS {
             panic_with_error!(&env, PoolError::FeeTooHigh);
         }
+        let invoice_contract = Self::invoice_contract(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, PoolError::NotInitialized));
+        let escrow_contract = Self::escrow_contract(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, PoolError::NotInitialized));
+        Self::assert_valid_treasury(
+            &env,
+            &treasury,
+            &invoice_contract,
+            &escrow_contract,
+            &Self::funding_asset(&env),
+            &Self::registry_contract(&env),
+        );
         let old_fee_bps = env
             .storage()
             .instance()
@@ -1630,6 +1725,26 @@ impl PoolContract {
     fn require_initialized(env: &Env) {
         if !env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(env, PoolError::NotInitialized);
+        }
+    }
+
+    /// Prevents protocol fees from being routed to the pool itself or to one
+    /// of the contracts that participate in its settlement wiring.
+    fn assert_valid_treasury(
+        env: &Env,
+        treasury: &Address,
+        invoice_contract: &Address,
+        escrow_contract: &Address,
+        funding_asset: &Address,
+        registry_contract: &Address,
+    ) {
+        if treasury == &env.current_contract_address()
+            || treasury == invoice_contract
+            || treasury == escrow_contract
+            || treasury == funding_asset
+            || treasury == registry_contract
+        {
+            panic_with_error!(env, PoolError::InvalidConfiguration);
         }
     }
 
@@ -1835,7 +1950,7 @@ impl PoolContract {
     }
 
     /// Internal helper to mint LP shares (scoped for SEP-41 share issuance).
-    fn mint(env: &Env, to: &Address, amount: u128) {
+    fn _mint(env: &Env, to: &Address, amount: u128) {
         let total_shares = Self::totals(env).shares;
         env.storage()
             .instance()
@@ -1852,7 +1967,7 @@ impl PoolContract {
     }
 
     /// Internal helper to burn LP shares (scoped for SEP-41 share redemption).
-    fn burn(env: &Env, from: &Address, amount: u128) -> u128 {
+    fn _burn(env: &Env, from: &Address, amount: u128) -> u128 {
         let total_shares = Self::totals(env).shares;
         env.storage()
             .instance()
