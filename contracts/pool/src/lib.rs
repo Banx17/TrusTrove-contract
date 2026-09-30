@@ -124,7 +124,6 @@ impl PoolContract {
             || admin == escrow_contract
             || admin == funding_asset
             || admin == registry_contract
-            || admin == treasury_address
             || invoice_contract == escrow_contract
             || invoice_contract == funding_asset
             || invoice_contract == registry_contract
@@ -191,9 +190,6 @@ impl PoolContract {
         env.storage()
             .instance()
             .set(&DataKey::FeeBps, &0u32); // Default to 0% fee
-        env.storage()
-            .instance()
-            .set(&DataKey::TreasuryAddress, &treasury_address);
         env.storage()
             .instance()
             .set(&DataKey::TotalLossRealised, &0u128);

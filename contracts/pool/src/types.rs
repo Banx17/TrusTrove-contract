@@ -104,8 +104,6 @@ pub enum DataKey {
     RegistryContract,
     /// Stored protocol fee basis points (defaults to 0 bps).
     ProtocolFeeBps,
-    /// Stored treasury destination address (defaults to admin).
-    TreasuryAddress,
     /// Admin-configured minimum initial deposit floor for this instance, set
     /// at `initialize` time. See `DEFAULT_MIN_INITIAL_DEPOSIT` for the
     /// fallback used by pre-migration instances.
