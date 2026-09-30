@@ -33,6 +33,17 @@ pub fn lp_withdrawn(env: &Env, lp: &Address, usdc_amount: u128, shares_burned: u
     );
 }
 
+/// Emitted by both SEP-41 share-movement entry points — `transfer` and
+/// `transfer_from` — using the standard `transfer(from, to, amount)` data
+/// shape, so generic token indexers can watch share movements the same way
+/// they watch any SEP-41 token.
+pub fn shares_transferred(env: &Env, from: &Address, to: &Address, amount: i128) {
+    env.events().publish(
+        (Symbol::new(env, "transfer"), from.clone()),
+        (to.clone(), amount),
+    );
+}
+
 pub fn invoice_funded(env: &Env, invoice_id: &BytesN<32>, funded_amount: u128) {
     env.events().publish(
         (Symbol::new(env, "invoice_funded"), invoice_id.clone()),
@@ -73,5 +84,22 @@ pub fn protocol_fee_updated(env: &Env, old_fee_bps: u32, new_fee_bps: u32, treas
     env.events().publish(
         (Symbol::new(env, "protocol_fee_updated"),),
         (old_fee_bps, new_fee_bps, treasury.clone()),
+    );
+}
+
+/// Emitted by `approve` whenever an LP's spending grant changes, so a spender
+/// (and any indexer watching LP positions) can observe pre-authorized share
+/// movement without polling `allowance`. `amount` is the new total grant, not a
+/// delta, matching SEP-41's `approve` semantics.
+pub fn allowance_approved(
+    env: &Env,
+    from: &Address,
+    spender: &Address,
+    amount: i128,
+    expiration_ledger: u32,
+) {
+    env.events().publish(
+        (Symbol::new(env, "allowance_approved"), from.clone()),
+        (spender.clone(), amount, expiration_ledger),
     );
 }
