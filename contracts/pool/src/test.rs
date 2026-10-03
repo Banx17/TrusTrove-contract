@@ -2264,7 +2264,10 @@ fn test_handle_default() {
 
     let after = te.pool.get_stats();
     let position_after = te.pool.get_lp_position(&te.lp);
-    assert_eq!(after.total_deposits, before.total_deposits - funded_amount);
+    // Escrow returns the funded principal to the pool, so the default only
+    // rotates capital out of `TotalFunded` — `TotalDeposits` and the LP's
+    // share value stay intact (#439).
+    assert_eq!(after.total_deposits, before.total_deposits);
     assert_eq!(after.total_funded, 0);
     assert_eq!(after.active_invoice_count, 0);
     assert_eq!(after.total_shares, before.total_shares);
@@ -2272,10 +2275,7 @@ fn test_handle_default() {
         after.total_loss_realised,
         before.total_loss_realised + funded_amount
     );
-    assert_eq!(
-        position_after.usdc_value,
-        position_before.usdc_value - funded_amount
-    );
+    assert_eq!(position_after.usdc_value, position_before.usdc_value);
 
     let events = te.env.events().all();
     let (contract, topics, data) = events.get(events.len() - 1).unwrap();
@@ -2314,25 +2314,66 @@ fn test_handle_default_realizes_loss_without_burning_shares() {
     let lp_after = te.pool.get_lp_position(&te.lp);
     let pool_after = te.pool.get_stats();
 
-    // A default writes the funded amount off against pool deposits (realising
-    // the loss) while leaving the share supply untouched: total_shares and the
-    // LP's share balance are preserved, and total_loss_realised tracks the
-    // loss. Deposit value falls by exactly the funded amount.
-    assert_eq!(
-        pool_after.total_deposits,
-        pool_before.total_deposits - DEFAULT_FUNDED_AMOUNT
-    );
+    // A default is a capital rotation, not a capital burn (#439): escrow
+    // returns the funded principal to the pool, so `TotalDeposits`, the share
+    // supply, the LP's share balance, and LP share value are all preserved.
+    // `total_loss_realised` still records the credit event, and only
+    // `TotalFunded` is unwound.
+    assert_eq!(pool_after.total_deposits, pool_before.total_deposits);
     assert_eq!(pool_after.total_shares, pool_before.total_shares);
     assert_eq!(lp_after.shares, lp_before.shares);
-    assert_eq!(
-        lp_after.usdc_value,
-        lp_before.usdc_value - DEFAULT_FUNDED_AMOUNT
-    );
+    assert_eq!(lp_after.usdc_value, lp_before.usdc_value);
     assert_eq!(pool_after.total_funded, 0);
     assert_eq!(pool_after.active_invoice_count, 0);
     assert_eq!(
         pool_after.total_loss_realised,
         pool_before.total_loss_realised + DEFAULT_FUNDED_AMOUNT
+    );
+}
+
+// ============== ISSUE #439: DEFAULT RECOVERY PRESERVES LP CAPITAL ==============
+
+/// After escrow returns the funded principal, `TotalDeposits` must be
+/// untouched: only `TotalFunded` is unwound. This keeps share price
+/// (`TotalDeposits / TotalShares`) and every LP position intact, so a default
+/// never artificially deflates LP value (issue #439).
+#[test]
+fn test_handle_default_preserves_total_deposits_and_lp_positions() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    te.pool.fund_invoice(&invoice_id);
+
+    let before = te.pool.get_stats();
+    let lp_before = te.pool.get_lp_position(&te.lp);
+    assert_eq!(before.total_deposits, 100_000_000_000);
+    assert_eq!(before.total_funded, DEFAULT_FUNDED_AMOUNT);
+
+    te.env
+        .ledger()
+        .set_timestamp(te.env.ledger().timestamp() + 60);
+    assert!(te.pool.handle_default(&invoice_id));
+
+    let after = te.pool.get_stats();
+    let lp_after = te.pool.get_lp_position(&te.lp);
+
+    // LP capital in: deposits, shares, and per-LP value all unchanged.
+    assert_eq!(after.total_deposits, before.total_deposits);
+    assert_eq!(after.total_shares, before.total_shares);
+    assert_eq!(lp_after.shares, lp_before.shares);
+    assert_eq!(lp_after.usdc_value, lp_before.usdc_value);
+
+    // Only capital out on the invoice is unwound, and the recovered amount
+    // shows up as free liquidity again.
+    assert_eq!(after.total_funded, 0);
+    assert_eq!(
+        after.total_deposits - after.total_funded,
+        before.total_deposits - before.total_funded + DEFAULT_FUNDED_AMOUNT
+    );
+    assert_eq!(after.active_invoice_count, 0);
+    assert_eq!(
+        after.total_loss_realised,
+        before.total_loss_realised + DEFAULT_FUNDED_AMOUNT
     );
 }
 
@@ -2534,18 +2575,17 @@ fn test_handle_default_unknown_invoice_leaves_pool_state_unchanged() {
 fn test_deposit_when_deposits_zero_but_shares_exist() {
     let te = setup();
 
-    // Deposit exact amount needed to fund the standard test invoice
-    // (10B face value, 200bps discount = 9.8B funding amount)
+    // LP1 deposits and keeps their shares. Since issue #439 makes a default
+    // preserve `TotalDeposits`, the "deposits == 0 but shares exist" edge case
+    // is now reproduced by zeroing `TotalDeposits` directly — this is the
+    // division-by-zero path the deposit math must guard.
     te.pool.deposit(&te.lp, &DEFAULT_FUNDED_AMOUNT);
-
-    let invoice_id = create_and_list(&te, &te.usdc_id);
-    te.pool.fund_invoice(&invoice_id);
-    te.env
-        .ledger()
-        .set_timestamp(te.env.ledger().timestamp() + 60);
-
-    // Trigger default, wiping out all pool deposits
-    te.pool.handle_default(&invoice_id);
+    te.env.as_contract(&te.pool_id, || {
+        te.env
+            .storage()
+            .instance()
+            .set(&DataKey::TotalDeposits, &0u128);
+    });
 
     let stats = te.pool.get_stats();
     assert_eq!(stats.total_deposits, 0);
@@ -2574,13 +2614,25 @@ fn test_deposit_after_default_share_price_recovery() {
         .ledger()
         .set_timestamp(te.env.ledger().timestamp() + 60);
 
-    // Default wipes out 9.8B, leaving LP1 with 0.2B / 10B shares = 0.02 USDC per share
+    // Default: escrow returns the 9.8B principal to the pool.
     let _ = te.pool.handle_default(&invoice_id);
 
+    // Issue #439: default recovery no longer deflates LP capital — escrow
+    // returns the principal, so TotalDeposits and the share supply are
+    // preserved (share price stays at 1.0).
     let stats_after_default = te.pool.get_stats();
-    assert_eq!(stats_after_default.total_deposits, DEFAULT_YIELD_AMOUNT); // 10B - 9.8B
+    assert_eq!(stats_after_default.total_deposits, 10_000_000_000);
     assert_eq!(stats_after_default.total_shares, 10_000_000_000); // unchanged
-                                                                  // Share price: 200M / 10B = 0.02
+
+    // Force a sub-1.0 share price (0.2B / 10B = 0.02 USDC per share) directly
+    // in storage: this is the state the deposit math must keep handling now
+    // that defaults no longer produce it. Share price: 200M / 10B = 0.02
+    te.env.as_contract(&te.pool_id, || {
+        te.env
+            .storage()
+            .instance()
+            .set(&DataKey::TotalDeposits, &DEFAULT_YIELD_AMOUNT);
+    });
 
     // LP2 deposits 10B USDC (new address)
     let lp2 = create_lp_with_balance(&te, 100_000_000_000);
@@ -4211,7 +4263,7 @@ fn test_withdraw_dust_rejection_preserves_state() {
 // ============== CHECKED SUBTRACTION TESTS (issue #594) ==============
 
 // handle_default: TotalFunded subtraction must not panic on valid data and must
-// correctly reduce TotalFunded and TotalDeposits.
+// correctly reduce TotalFunded while preserving TotalDeposits (#439).
 #[test]
 fn test_handle_default_total_funded_decremented_correctly() {
     let te = setup();
@@ -4231,10 +4283,11 @@ fn test_handle_default_total_funded_decremented_correctly() {
         before.total_funded - DEFAULT_FUNDED_AMOUNT,
         "TotalFunded must decrease by funded_amount"
     );
+    // #439: escrow returns the principal to the pool, so LP capital is
+    // preserved — only TotalFunded is unwound.
     assert_eq!(
-        after.total_deposits,
-        before.total_deposits - DEFAULT_FUNDED_AMOUNT,
-        "TotalDeposits must decrease by funded_amount on default"
+        after.total_deposits, before.total_deposits,
+        "TotalDeposits must stay unchanged on default recovery"
     );
 }
 
@@ -6175,4 +6228,196 @@ fn test_get_suggested_discount_bps_uninitialized_pool_returns_floor() {
         pool.get_suggested_discount_bps(),
         SUGGESTED_DISCOUNT_FLOOR_BPS
     );
+}
+// ============== ISSUE #440: TRANSFER OWNERSHIP ==============
+
+#[test]
+fn test_pool_transfer_ownership_changes_admin_and_emits_event() {
+    let te = setup();
+    let new_admin = Address::generate(&te.env);
+
+    te.pool.transfer_ownership(&new_admin);
+
+    assert_eq!(te.pool.get_admin(), new_admin);
+
+    // ownership_transferred(old_admin, new_admin)
+    let events = te.env.events().all();
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.pool_id);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "ownership_transferred")
+    );
+    assert_eq!(
+        Address::try_from_val(&te.env, &topics.get(1).unwrap()).unwrap(),
+        te.admin
+    );
+    assert_eq!(Address::try_from_val(&te.env, &data).unwrap(), new_admin);
+}
+
+/// Dual auth: only `non_admin` signed the call, so the stored admin's
+/// `require_auth()` rejects the transfer — an unauthorized caller cannot move
+/// ownership (issue #440).
+#[test]
+fn test_pool_transfer_ownership_rejects_unauthorized_caller() {
+    let te = setup();
+    let new_admin = Address::generate(&te.env);
+    let non_admin = Address::generate(&te.env);
+
+    te.env.mock_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &te.pool_id,
+            fn_name: "transfer_ownership",
+            args: (new_admin.clone(),).into_val(&te.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(te.pool.try_transfer_ownership(&new_admin).is_err());
+}
+
+/// Dual auth also requires the *incoming* admin to consent: with only the
+/// current admin's signature, `new_admin.require_auth()` rejects the transfer
+/// so ownership cannot be forced onto an address that never signed.
+#[test]
+fn test_pool_transfer_ownership_requires_new_admin_consent() {
+    let te = setup();
+    let new_admin = Address::generate(&te.env);
+
+    te.env.mock_auths(&[MockAuth {
+        address: &te.admin,
+        invoke: &MockAuthInvoke {
+            contract: &te.pool_id,
+            fn_name: "transfer_ownership",
+            args: (new_admin.clone(),).into_val(&te.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(te.pool.try_transfer_ownership(&new_admin).is_err());
+    // Admin unchanged after the rejected transfer.
+    assert_eq!(te.pool.get_admin(), te.admin);
+}
+
+// ============== ISSUE #714: EMERGENCY PAUSE / UNPAUSE ==============
+
+#[test]
+fn test_pause_blocks_state_changes_and_unpause_restores_them() {
+    let te = setup();
+
+    // Live: deposits flow.
+    te.pool.deposit(&te.lp, &10_000_000_000);
+    assert_eq!(te.pool.get_stats().total_deposits, 10_000_000_000);
+
+    te.pool.pause();
+
+    // State-changing entry points are rejected while paused...
+    assert!(te.pool.try_deposit(&te.lp, &10_000_000_000).is_err());
+    assert!(te.pool.try_transfer(&te.lp, &te.issuer, &1i128).is_err());
+    assert!(te.pool.try_set_max_utilization(&te.admin, &9000).is_err());
+
+    // ...while read-only views keep working.
+    let stats = te.pool.get_stats();
+    assert_eq!(stats.total_deposits, 10_000_000_000);
+    assert_eq!(te.pool.get_admin(), te.admin);
+    assert_eq!(te.pool.balance(&te.lp), 10_000_000_000);
+    let _ = te.pool.get_lp_position(&te.lp);
+    let _ = te.pool.get_utilization_rate();
+
+    te.pool.unpause();
+
+    // Unpaused: state changes flow again.
+    te.pool.deposit(&te.lp, &10_000_000_000);
+    assert_eq!(te.pool.get_stats().total_deposits, 20_000_000_000);
+}
+
+/// Pins the exact breaker error: `PauseError::ContractPaused` from the shared
+/// crate surfaces as `Error(Contract, #1)` on every guarded entry point.
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_deposit_reverts_while_paused_with_contract_paused_error() {
+    let te = setup();
+    te.pool.pause();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+}
+
+/// Negative auth: only a non-admin signed `pause`, so the stored admin's
+/// `require_auth()` must reject it — a non-admin cannot engage the breaker.
+#[test]
+fn test_pause_requires_admin_authorization() {
+    let te = setup();
+    let non_admin = Address::generate(&te.env);
+
+    te.env.mock_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &te.pool_id,
+            fn_name: "pause",
+            args: soroban_sdk::Vec::new(&te.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(te.pool.try_pause().is_err());
+}
+
+/// Negative auth for disengaging: a non-admin cannot unpause either, so a
+/// paused pool cannot be resumed by anyone but the admin.
+#[test]
+fn test_unpause_requires_admin_authorization() {
+    let te = setup();
+    te.pool.pause();
+    let non_admin = Address::generate(&te.env);
+
+    te.env.mock_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &te.pool_id,
+            fn_name: "unpause",
+            args: soroban_sdk::Vec::new(&te.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(te.pool.try_unpause().is_err());
+}
+
+#[test]
+fn test_pause_and_unpause_emit_events() {
+    let te = setup();
+
+    te.pool.pause();
+    let events = te.env.events().all();
+    let (contract, topics, _) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.pool_id);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "paused")
+    );
+    assert_eq!(
+        Address::try_from_val(&te.env, &topics.get(1).unwrap()).unwrap(),
+        te.admin
+    );
+
+    te.pool.unpause();
+    let events = te.env.events().all();
+    let (contract, topics, _) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, te.pool_id);
+    assert_eq!(
+        Symbol::try_from_val(&te.env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&te.env, "unpaused")
+    );
+    assert_eq!(
+        Address::try_from_val(&te.env, &topics.get(1).unwrap()).unwrap(),
+        te.admin
+    );
+}
+
+/// Transfer of ownership is itself a state change, so the breaker gates it
+/// too: while paused, `transfer_ownership` reverts and the admin is unchanged.
+#[test]
+fn test_pool_transfer_ownership_blocked_while_paused() {
+    let te = setup();
+    let new_admin = Address::generate(&te.env);
+
+    te.pool.pause();
+    assert!(te.pool.try_transfer_ownership(&new_admin).is_err());
+    assert_eq!(te.pool.get_admin(), te.admin);
 }
