@@ -559,10 +559,12 @@ impl PoolContract {
     ///   would overflow `u128` while computing the redemption amount.
     ///
     /// # Notes
-    /// On full withdrawal (remaining shares reach zero), `LPInitialDeposit`
-    /// and `LPDepositCount` are removed from storage. This ensures a
-    /// subsequent re-deposit starts with a fresh initial-deposit basis
-    /// and an accurate deposit count.
+    /// Principal is tracked as one aggregate amount per LP, not as per-deposit
+    /// lots. A withdrawal allocates that principal pro rata across the LP's
+    /// shares, so its yield attribution can differ from FIFO or HIFO lot
+    /// accounting after deposits at different share prices. On full withdrawal
+    /// (remaining shares reach zero), `LPInitialDeposit` and `LPDepositCount`
+    /// are removed so a subsequent deposit starts a fresh accounting cycle.
     ///
     /// # Returns
     /// * `u128` - The amount of USDC returned.

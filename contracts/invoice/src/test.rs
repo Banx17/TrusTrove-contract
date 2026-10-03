@@ -917,15 +917,34 @@ fn test_list_fails_discount_too_high() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #12)")]
-fn test_list_for_financing_discount_bps_zero_panics() {
-    // discount_bps == 0 is a 0% yield — nonsensical business state.
-    // Must be rejected with InvalidDiscount (#12).
+fn test_zero_discount_full_lifecycle_and_zero_term_repayment() {
     let (env, client, issuer, buyer, _, usdc) = setup();
     let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
-    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    let face_value = DEFAULT_FACE_VALUE;
+    let invoice_id = client.create(&issuer, &buyer, &face_value, &due_date, &usdc);
     attest(&env, &client, &invoice_id);
-    client.list_for_financing(&invoice_id, &0);
+    assert!(client.list_for_financing(&invoice_id, &0));
+
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+    client.set_escrow_contract(&escrow);
+
+    // Funding at maturity exercises repay's zero-term branch.
+    env.ledger().set_timestamp(due_date);
+    client.mark_funded(&invoice_id, &pool, &usdc, &face_value);
+    let funded = client.get(&invoice_id);
+    assert_eq!(funded.discount_bps, 0);
+    assert_eq!(funded.funded_amount, face_value);
+
+    client.mark_shipped(&invoice_id);
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+    mint_tokens(&env, &usdc, &buyer, face_value as i128);
+
+    assert!(client.repay(&invoice_id));
+    assert_eq!(client.get(&invoice_id).status, InvoiceStatus::Repaid);
+    assert_eq!(MockPoolClient::new(&env, &pool).get_last_refund(), 0);
 }
 
 #[test]
@@ -2462,7 +2481,7 @@ fn prop_any_future_due_date_creates_invoice_successfully() {
 fn prop_discount_bps_within_limit_always_lists_invoice() {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
     runner
-        .run(&(1u32..=5000u32), |discount_bps| {
+        .run(&(0u32..=5000u32), |discount_bps| {
             let (env, client, issuer, buyer, _, usdc) = setup();
             let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
             let id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
@@ -2518,6 +2537,108 @@ fn prop_expiry_window_bounds_are_respected_across_values() {
             prop_assert_eq!(client.get(&id).status, InvoiceStatus::Expired);
             Ok(())
         })
+        .unwrap();
+}
+
+fn assert_status_index_consistency(client: &InvoiceContractClient, invoice_id: &BytesN<32>) {
+    let invoice = client.get(invoice_id);
+    let statuses = [
+        InvoiceStatus::Created,
+        InvoiceStatus::Listed,
+        InvoiceStatus::Funded,
+        InvoiceStatus::Active,
+        InvoiceStatus::Confirmed,
+        InvoiceStatus::Repaid,
+        InvoiceStatus::Defaulted,
+        InvoiceStatus::Expired,
+    ];
+
+    for status in statuses {
+        let indexed = client.get_by_status(&status);
+        if status == invoice.status {
+            assert_eq!(indexed.len(), 1);
+            assert_eq!(indexed.get(0).unwrap().id, *invoice_id);
+        } else {
+            assert_eq!(indexed.len(), 0);
+        }
+    }
+}
+
+#[test]
+fn prop_random_valid_transition_paths_preserve_indexes_and_terminality() {
+    let mut runner = TestRunner::new(ProptestConfig::with_cases(10));
+    runner
+        .run(
+            &(
+                any::<bool>(),
+                0u32..=5000u32,
+                1u64..=2_592_000u64,
+                any::<bool>(),
+            ),
+            |(expires, discount_bps, expiry_window, issuer_confirms_first)| {
+                let (env, client, issuer, buyer, _, usdc) = setup();
+                let due_date = env.ledger().timestamp() + 31_536_000;
+                let invoice_id =
+                    client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+                assert_status_index_consistency(&client, &invoice_id);
+
+                attest(&env, &client, &invoice_id);
+                client.list_for_financing(&invoice_id, &discount_bps);
+                assert_status_index_consistency(&client, &invoice_id);
+
+                if expires {
+                    client.set_expiry_window(&expiry_window);
+                    env.ledger()
+                        .set_timestamp(env.ledger().timestamp() + expiry_window);
+                    prop_assert!(client.expire_listing(&invoice_id, &issuer));
+                    assert_status_index_consistency(&client, &invoice_id);
+
+                    let reopened = env.try_invoke_contract::<bool, soroban_sdk::Error>(
+                        &client.address,
+                        &Symbol::new(&env, "list_for_financing"),
+                        (invoice_id.clone(), discount_bps).into_val(&env),
+                    );
+                    prop_assert!(reopened.is_err());
+                } else {
+                    let pool = mock_pool_with_asset(&env, &usdc);
+                    client.set_pool_contract(&pool);
+                    let escrow = mock_escrow_for_pool(&env, &pool, &usdc);
+                    client.set_escrow_contract(&escrow);
+                    let funded_amount =
+                        DEFAULT_FACE_VALUE * (10_000 - discount_bps as u128) / 10_000;
+                    client.mark_funded(&invoice_id, &pool, &usdc, &funded_amount);
+                    assert_status_index_consistency(&client, &invoice_id);
+
+                    client.mark_shipped(&invoice_id);
+                    assert_status_index_consistency(&client, &invoice_id);
+
+                    if issuer_confirms_first {
+                        client.confirm_delivery(&invoice_id, &issuer);
+                        assert_status_index_consistency(&client, &invoice_id);
+                        client.confirm_delivery(&invoice_id, &buyer);
+                    } else {
+                        client.confirm_delivery(&invoice_id, &buyer);
+                        assert_status_index_consistency(&client, &invoice_id);
+                        client.confirm_delivery(&invoice_id, &issuer);
+                    }
+                    assert_status_index_consistency(&client, &invoice_id);
+
+                    mint_tokens(&env, &usdc, &buyer, DEFAULT_FACE_VALUE as i128);
+                    prop_assert!(client.repay(&invoice_id));
+                    assert_status_index_consistency(&client, &invoice_id);
+
+                    let replayed = env.try_invoke_contract::<bool, soroban_sdk::Error>(
+                        &client.address,
+                        &Symbol::new(&env, "repay"),
+                        (invoice_id.clone(),).into_val(&env),
+                    );
+                    prop_assert!(replayed.is_err());
+                }
+
+                assert_status_index_consistency(&client, &invoice_id);
+                Ok(())
+            },
+        )
         .unwrap();
 }
 

@@ -126,6 +126,25 @@ to exceed the per-entry size limit (~100 KB in practice).
 
 ## Known Gaps
 
+### LP Withdrawal Yield Uses Aggregate Principal
+
+The pool stores one cumulative principal amount per LP rather than deposit
+lots. A partial withdrawal allocates that amount pro rata across the LP's
+remaining shares. This is an average-basis approximation, not FIFO or HIFO
+accounting; after deposits at different share prices it can attribute a
+different yield amount to a particular withdrawal. Total USDC returned and
+pool share ownership are unaffected, but the LP's cumulative `yield_earned`
+report can differ based on the chosen lot-accounting policy.
+
+For example, an LP deposits 1,000 USDC, the pool gains 2%, then the LP deposits
+another 1,000 USDC. Withdrawing 500 shares returns about 510 USDC. FIFO would
+attribute 500 USDC principal and 10 USDC yield, while aggregate-basis
+accounting records about 504.95 USDC principal and 5.05 USDC yield. The
+roughly 4.95 USDC difference is about 49.5% of the FIFO yield for this
+withdrawal. The regression test in `contracts/pool/src/test.rs` covers this
+scenario. Per-deposit lots would be required if the protocol needs a specific
+FIFO/HIFO tax or reporting policy.
+
 ### Issuer Release Not Wired (Issue #56)
 
 After `fund_invoice` locks USDC in escrow, the pooled funds should be
