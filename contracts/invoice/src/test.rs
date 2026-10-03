@@ -4338,3 +4338,116 @@ fn test_expire_listing_unexpired_rejected_for_admin_with_explicit_auth() {
     }]);
     client.expire_listing(&invoice_id, &admin);
 }
+
+// ============== ISSUE #713: EMERGENCY PAUSE / UNPAUSE ==============
+
+#[test]
+fn test_pause_blocks_state_changes_and_unpause_restores_them() {
+    let (env, client, ..) = setup();
+
+    // Live: state changes flow.
+    client.set_expiry_window(&3600);
+    assert_eq!(client.get_expiry_window(), 3600);
+
+    client.pause();
+
+    // State-changing entry points are rejected while paused...
+    assert!(client.try_set_expiry_window(&7200).is_err());
+    assert!(client
+        .try_add_supported_asset(&Address::generate(&env))
+        .is_err());
+
+    // ...while read-only views keep working.
+    assert_eq!(client.get_expiry_window(), 3600);
+    assert!(client.get_admin().is_some());
+    let _ = client.get_counts();
+
+    client.unpause();
+
+    // Unpaused: state changes flow again.
+    client.set_expiry_window(&7200);
+    assert_eq!(client.get_expiry_window(), 7200);
+}
+
+/// Pins the exact breaker error: `PauseError::ContractPaused` from the shared
+/// crate surfaces as `Error(Contract, #1)` on every guarded invoice entry
+/// point (`InvoiceError::AlreadyInitialized` is the only other #1, and it is
+/// unreachable from `set_expiry_window`).
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_set_expiry_window_reverts_while_paused_with_contract_paused_error() {
+    let (_env, client, ..) = setup();
+    client.pause();
+    client.set_expiry_window(&7200);
+}
+
+/// Negative auth: only a non-admin signed `pause`, so the stored admin's
+/// `require_auth()` must reject it — a non-admin cannot engage the breaker.
+#[test]
+fn test_pause_requires_admin_authorization() {
+    let (env, client, ..) = setup();
+    let non_admin = Address::generate(&env);
+
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_admin,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "pause",
+            args: soroban_sdk::Vec::new(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_pause().is_err());
+}
+
+/// Negative auth for disengaging: a non-admin cannot unpause either, so a
+/// paused contract cannot be resumed by anyone but the admin.
+#[test]
+fn test_unpause_requires_admin_authorization() {
+    let (env, client, ..) = setup();
+    client.pause();
+    let non_admin = Address::generate(&env);
+
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_admin,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "unpause",
+            args: soroban_sdk::Vec::new(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_unpause().is_err());
+}
+
+#[test]
+fn test_pause_and_unpause_emit_events() {
+    let (env, client, ..) = setup();
+    let admin = client.get_admin().unwrap();
+
+    client.pause();
+    let events = env.events().all();
+    let (contract, topics, _) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, client.address);
+    assert_eq!(
+        Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&env, "paused")
+    );
+    assert_eq!(
+        Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap(),
+        admin
+    );
+
+    client.unpause();
+    let events = env.events().all();
+    let (contract, topics, _) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, client.address);
+    assert_eq!(
+        Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
+        Symbol::new(&env, "unpaused")
+    );
+    assert_eq!(
+        Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap(),
+        admin
+    );
+}

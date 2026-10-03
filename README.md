@@ -440,13 +440,11 @@ If you want to contribute to governance design, open an issue tagged `complexity
 
 `invoice::trigger_default` is permissionless and requires no authorization (`admin.require_auth()` was removed). Anyone can trigger default processing once `now >= due_date`. This removes the single point of failure of an admin-gated default mechanism and ensures timely loss recognition and escrow fund recovery for liquidity pools without relying on admin intervention.
 
-### No emergency pause mechanism
+### Emergency pause mechanism (partial rollout)
 
-There is currently no circuit breaker. If a critical bug is found post-deployment the only recourse is to stop directing traffic to the affected contracts via the frontend.
+The `pool` and `invoice` contracts expose admin-gated `pause() / unpause()` entry points backed by the shared [`trusttrove-pause`](contracts/pause) crate. While paused, every state-changing call reverts with `ContractPaused` while read-only views remain live.
 
-**Progress (issue #712):** the shared `contracts/pause` crate (`trusttrove-pause`) now provides the `PauseState` storage key plus the `set_paused()` / `require_not_paused()` helpers each contract will call from its state-changing entry points. The `admin_pause() / admin_unpause()` entry points themselves are not yet wired into the contracts.
-
-**Roadmap:** Add an `admin_pause() / admin_unpause()` function pair to each contract, guarded behind multi-sig, that blocks state-changing calls while reads remain live.
+**Roadmap:** Wire the same circuit breaker into the remaining contracts (`registry`, `escrow`), and back the admin key with a multi-sig.
 
 ---
 

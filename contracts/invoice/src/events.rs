@@ -109,6 +109,20 @@ pub fn ownership_transferred(env: &Env, from: &Address, to: &Address) {
     );
 }
 
+/// Emitted by `pause` when the emergency circuit breaker is engaged. `admin` is
+/// the address that authorized the pause, indexed so indexers can track who
+/// flipped the breaker.
+pub fn paused(env: &Env, admin: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "paused"), admin.clone()), ());
+}
+
+/// Emitted by `unpause` when the emergency circuit breaker is disengaged.
+pub fn unpaused(env: &Env, admin: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "unpaused"), admin.clone()), ());
+}
+
 pub fn pool_contract_updated(env: &Env, old: &Address, new: &Address) {
     env.events().publish(
         (

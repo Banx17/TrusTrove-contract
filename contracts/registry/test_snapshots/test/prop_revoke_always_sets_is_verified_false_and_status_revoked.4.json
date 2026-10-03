@@ -36,7 +36,24 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "__ZV3Z59"
+                      },
+                      "val": {
+                        "string": "4r17_LslSa"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "j7_"
+                      },
+                      "val": {
+                        "string": "x8J"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -163,7 +180,24 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": []
+                        "map": [
+                          {
+                            "key": {
+                              "string": "__ZV3Z59"
+                            },
+                            "val": {
+                              "string": "4r17_LslSa"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "j7_"
+                            },
+                            "val": {
+                              "string": "x8J"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -517,7 +551,24 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "__ZV3Z59"
+                      },
+                      "val": {
+                        "string": "4r17_LslSa"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "j7_"
+                      },
+                      "val": {
+                        "string": "x8J"
+                      }
+                    }
+                  ]
                 }
               ]
             }
