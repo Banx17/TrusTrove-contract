@@ -214,12 +214,14 @@ are provided where available.
 
 ### Smart Contracts
 
-- Emergency pause mechanism (`admin_pause() / admin_unpause()`). The shared
-  `trusttrove-pause` crate (storage key plus `set_paused()` /
-  `require_not_paused()` helpers, issue #712) has landed as the foundation;
-  the admin entry points are not yet wired into the contracts.
+- Emergency pause mechanism for `escrow`. The `pool`, `invoice`, and `registry`
+  contracts ship admin-gated `pause() / unpause()` built on the shared
+  `trusttrove-pause` crate (issues #713, #714, #715); while paused every
+  state-changing call reverts with `ContractPaused` and read-only views stay
+  live. `escrow` is the last contract without the breaker.
 - Multi-sig admin (3-of-5 Stellar signers)
-- LP-governed invoice funding (stake LP tokens to vote on invoices)
+- LP-governed invoice funding (stake LP tokens to vote on invoices). Design
+  proposal: [NEW\_DESIGN.md](NEW_DESIGN.md) (issue #718)
 - Dynamic utilization-based interest rate model
 - Batch invoice creation
 - Swap-free multi-asset pools (USDC + XLM)

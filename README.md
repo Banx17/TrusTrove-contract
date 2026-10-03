@@ -444,9 +444,9 @@ If you want to contribute to governance design, open an issue tagged `complexity
 
 There is currently no circuit breaker. If a critical bug is found post-deployment the only recourse is to stop directing traffic to the affected contracts via the frontend.
 
-**Progress (issue #712):** the shared `contracts/pause` crate (`trusttrove-pause`) now provides the `PauseState` storage key plus the `set_paused()` / `require_not_paused()` helpers each contract will call from its state-changing entry points. The `admin_pause() / admin_unpause()` entry points themselves are not yet wired into the contracts.
+The `pool`, `invoice`, and `registry` contracts expose admin-gated `pause() / unpause()` entry points backed by the shared [`trusttrove-pause`](contracts/pause) crate (issues #713, #714, #715). While paused, every state-changing call reverts with `ContractPaused` while read-only views remain live.
 
-**Roadmap:** Add an `admin_pause() / admin_unpause()` function pair to each contract, guarded behind multi-sig, that blocks state-changing calls while reads remain live.
+**Roadmap:** Wire the same circuit breaker into the remaining contract (`escrow`), and back the admin key with a multi-sig.
 
 ---
 
