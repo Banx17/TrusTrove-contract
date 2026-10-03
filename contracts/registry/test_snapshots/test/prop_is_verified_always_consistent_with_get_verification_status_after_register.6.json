@@ -39,34 +39,10 @@
                   "map": [
                     {
                       "key": {
-                        "string": "KC_"
+                        "string": "J1"
                       },
                       "val": {
-                        "string": "7MC"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "SCe98h"
-                      },
-                      "val": {
-                        "string": "1_xmTofDn5"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "_Eyq0"
-                      },
-                      "val": {
-                        "string": "6uu"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "enVln"
-                      },
-                      "val": {
-                        "string": "9ajYH"
+                        "string": "__"
                       }
                     }
                   ]
@@ -136,34 +112,10 @@
                         "map": [
                           {
                             "key": {
-                              "string": "KC_"
+                              "string": "J1"
                             },
                             "val": {
-                              "string": "7MC"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "SCe98h"
-                            },
-                            "val": {
-                              "string": "1_xmTofDn5"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "_Eyq0"
-                            },
-                            "val": {
-                              "string": "6uu"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "enVln"
-                            },
-                            "val": {
-                              "string": "9ajYH"
+                              "string": "__"
                             }
                           }
                         ]
@@ -424,34 +376,10 @@
                   "map": [
                     {
                       "key": {
-                        "string": "KC_"
+                        "string": "J1"
                       },
                       "val": {
-                        "string": "7MC"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "SCe98h"
-                      },
-                      "val": {
-                        "string": "1_xmTofDn5"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "_Eyq0"
-                      },
-                      "val": {
-                        "string": "6uu"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "enVln"
-                      },
-                      "val": {
-                        "string": "9ajYH"
+                        "string": "__"
                       }
                     }
                   ]

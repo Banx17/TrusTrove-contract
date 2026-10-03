@@ -38,6 +38,18 @@ pub const MAX_INVOICE_LIFETIME_SECONDS: u64 = 10 * 365 * 24 * 60 * 60;
 /// against an unrelated contract or message format.
 pub const ATTESTATION_DOMAIN_SEPARATOR: [u8; 32] = *b"TrusTrove.InvoiceAttestation.v1_";
 
+/// Maximum number of invoices a single paginated `get_by_*` query may return.
+///
+/// Pagination exists to keep each read within the Soroban per-transaction
+/// CPU/memory budget (issue #71): without a hard cap a caller could pass a
+/// huge `page_size` and hydrate the entire index in one call, defeating the
+/// point. `50` mirrors the workspace's existing batch ceiling
+/// (`batch_register_issuers` caps at 50 entries per call).
+///
+/// Requests with `page_size > MAX_PAGE_SIZE` panic with
+/// [`InvoiceError::InvalidPageSize`].
+pub const MAX_PAGE_SIZE: u32 = 50;
+
 #[contract]
 pub struct InvoiceContract;
 
@@ -1921,33 +1933,49 @@ impl InvoiceContract {
         Self::get_invoice(&env, invoice_id)
     }
 
-    /// Lists invoices for a given status.
+    /// Lists a page of invoices for a given status.
+    ///
+    /// The status index is append-only (entries are not reclaimed when an
+    /// invoice moves to another status), so results are filtered to invoices
+    /// whose *current* status matches and a page can therefore be shorter than
+    /// `page_size`. Pagination bounds the number of invoices hydrated per call,
+    /// keeping the read within the Soroban CPU/memory budget (issue #71).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `status` - The invoice status filter.
+    /// * `page` - Zero-based page index. Pages starting past the end of the
+    ///   index return an empty `Vec`.
+    /// * `page_size` - Maximum invoices to return for this page. Must be
+    ///   `<= MAX_PAGE_SIZE`.
     ///
     /// # Auth
     /// No authorization is required.
     ///
     /// # Panics
-    /// Does not panic.
+    /// * `InvoiceError::InvalidPageSize` if `page_size > MAX_PAGE_SIZE`.
     ///
     /// # Returns
-    /// * `Vec<Invoice>` - The invoices matching the status.
+    /// * `Vec<Invoice>` - The invoices matching the status on the requested page.
     ///
     /// # Example
     /// ```ignore
-    /// let invoices = client.get_by_status(InvoiceStatus::Created);
+    /// let invoices = client.get_by_status(&InvoiceStatus::Created, 0, 20);
     /// ```
-    pub fn get_by_status(env: Env, status: InvoiceStatus) -> Vec<Invoice> {
+    pub fn get_by_status(
+        env: Env,
+        status: InvoiceStatus,
+        page: u32,
+        page_size: u32,
+    ) -> Vec<Invoice> {
         let count: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::StatusIndexCount(status as u32))
             .unwrap_or(0);
+        let (start, end) = page_range(&env, count, page, page_size);
         let mut ids: Vec<BytesN<32>> = Vec::new(&env);
-        for i in 0..count {
+        for i in start..end {
             let id: BytesN<32> = env
                 .storage()
                 .persistent()
@@ -1968,33 +1996,41 @@ impl InvoiceContract {
         result
     }
 
-    /// Lists invoices created by a given issuer.
+    /// Lists a page of invoices created by a given issuer.
+    ///
+    /// Pagination bounds the number of invoices hydrated per call, keeping the
+    /// read within the Soroban CPU/memory budget (issue #71).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `address` - The issuer address.
+    /// * `page` - Zero-based page index. Pages starting past the end of the
+    ///   index return an empty `Vec`.
+    /// * `page_size` - Maximum invoices to return for this page. Must be
+    ///   `<= MAX_PAGE_SIZE`.
     ///
     /// # Auth
     /// No authorization is required.
     ///
     /// # Panics
-    /// Does not panic.
+    /// * `InvoiceError::InvalidPageSize` if `page_size > MAX_PAGE_SIZE`.
     ///
     /// # Returns
-    /// * `Vec<Invoice>` - The invoices for the issuer.
+    /// * `Vec<Invoice>` - The invoices for the issuer on the requested page.
     ///
     /// # Example
     /// ```ignore
-    /// let invoices = client.get_by_issuer(&issuer);
+    /// let invoices = client.get_by_issuer(&issuer, 0, 20);
     /// ```
-    pub fn get_by_issuer(env: Env, address: Address) -> Vec<Invoice> {
+    pub fn get_by_issuer(env: Env, address: Address, page: u32, page_size: u32) -> Vec<Invoice> {
         let count: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::IssuerIndexCount(address.clone()))
             .unwrap_or(0);
+        let (start, end) = page_range(&env, count, page, page_size);
         let mut ids: Vec<BytesN<32>> = Vec::new(&env);
-        for i in 0..count {
+        for i in start..end {
             let id: BytesN<32> = env
                 .storage()
                 .persistent()
@@ -2005,33 +2041,41 @@ impl InvoiceContract {
         hydrate_ids(&env, ids)
     }
 
-    /// Lists invoices associated with a given buyer.
+    /// Lists a page of invoices associated with a given buyer.
+    ///
+    /// Pagination bounds the number of invoices hydrated per call, keeping the
+    /// read within the Soroban CPU/memory budget (issue #71).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `address` - The buyer address.
+    /// * `page` - Zero-based page index. Pages starting past the end of the
+    ///   index return an empty `Vec`.
+    /// * `page_size` - Maximum invoices to return for this page. Must be
+    ///   `<= MAX_PAGE_SIZE`.
     ///
     /// # Auth
     /// No authorization is required.
     ///
     /// # Panics
-    /// Does not panic.
+    /// * `InvoiceError::InvalidPageSize` if `page_size > MAX_PAGE_SIZE`.
     ///
     /// # Returns
-    /// * `Vec<Invoice>` - The invoices for the buyer.
+    /// * `Vec<Invoice>` - The invoices for the buyer on the requested page.
     ///
     /// # Example
     /// ```ignore
-    /// let invoices = client.get_by_buyer(&buyer);
+    /// let invoices = client.get_by_buyer(&buyer, 0, 20);
     /// ```
-    pub fn get_by_buyer(env: Env, address: Address) -> Vec<Invoice> {
+    pub fn get_by_buyer(env: Env, address: Address, page: u32, page_size: u32) -> Vec<Invoice> {
         let count: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::BuyerIndexCount(address.clone()))
             .unwrap_or(0);
+        let (start, end) = page_range(&env, count, page, page_size);
         let mut ids: Vec<BytesN<32>> = Vec::new(&env);
-        for i in 0..count {
+        for i in start..end {
             let id: BytesN<32> = env
                 .storage()
                 .persistent()
@@ -2459,6 +2503,31 @@ fn read_status_count(env: &Env, status: InvoiceStatus) -> u64 {
         .persistent()
         .get(&DataKey::StatusCount(status as u32))
         .unwrap_or(0u64)
+}
+
+/// Computes the half-open `[start, end)` index range for one page of an index
+/// that currently holds `count` entries.
+///
+/// Returns `(0, 0)` for any request that starts at or past the end of the
+/// index (including an overflowing `page * page_size`), so callers naturally
+/// yield an empty `Vec` instead of panicking on out-of-range pages.
+///
+/// # Panics
+/// * [`InvoiceError::InvalidPageSize`] if `page_size > MAX_PAGE_SIZE`.
+fn page_range(env: &Env, count: u32, page: u32, page_size: u32) -> (u32, u32) {
+    if page_size > MAX_PAGE_SIZE {
+        panic_with_error!(env, InvoiceError::InvalidPageSize);
+    }
+    let start = match page.checked_mul(page_size) {
+        Some(start) => start,
+        // An overflowing offset is necessarily past the end of any index.
+        None => return (0, 0),
+    };
+    if start >= count {
+        return (0, 0);
+    }
+    let end = core::cmp::min(start.saturating_add(page_size), count);
+    (start, end)
 }
 
 fn hydrate_ids(env: &Env, ids: Vec<BytesN<32>>) -> Vec<Invoice> {

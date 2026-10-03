@@ -12,7 +12,7 @@ use soroban_sdk::{
 
 use crate::{
     InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MAX_FACE_VALUE,
-    TTL_EXTEND_TO, TTL_THRESHOLD,
+    MAX_PAGE_SIZE, TTL_EXTEND_TO, TTL_THRESHOLD,
 };
 
 // Default invoice parameters used across tests.
@@ -1067,11 +1067,11 @@ fn test_get_by_issuer_returns_correct_invoices() {
     client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
     client.create(&issuer, &buyer, &2_000_000_000, &due_date, &usdc);
 
-    let invoices = client.get_by_issuer(&issuer);
+    let invoices = client.get_by_issuer(&issuer, &0, &MAX_PAGE_SIZE);
     assert_eq!(invoices.len(), 2);
 
     let other = Address::generate(&env);
-    let empty = client.get_by_issuer(&other);
+    let empty = client.get_by_issuer(&other, &0, &MAX_PAGE_SIZE);
     assert_eq!(empty.len(), 0);
 }
 
@@ -1083,7 +1083,7 @@ fn test_get_by_buyer_returns_correct_invoices() {
     client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
     client.create(&issuer, &buyer, &2_000_000_000, &due_date, &usdc);
 
-    let invoices = client.get_by_buyer(&buyer);
+    let invoices = client.get_by_buyer(&buyer, &0, &MAX_PAGE_SIZE);
     assert_eq!(invoices.len(), 2);
 }
 
@@ -1115,7 +1115,7 @@ fn test_get_invoice_count_by_issuer_matches_get_by_issuer() {
     for party in [&issuer, &issuer2, &issuer3, &buyer, &buyer2] {
         assert_eq!(
             client.get_invoice_count_by_issuer(party),
-            client.get_by_issuer(party).len(),
+            client.get_by_issuer(party, &0, &MAX_PAGE_SIZE).len(),
             "issuer count mismatch for {party:?}"
         );
     }
@@ -1153,7 +1153,7 @@ fn test_get_invoice_count_by_buyer_matches_get_by_buyer() {
     for party in [&issuer, &issuer2, &buyer, &buyer2, &buyer3] {
         assert_eq!(
             client.get_invoice_count_by_buyer(party),
-            client.get_by_buyer(party).len(),
+            client.get_by_buyer(party, &0, &MAX_PAGE_SIZE).len(),
             "buyer count mismatch for {party:?}"
         );
     }
@@ -1201,7 +1201,7 @@ fn test_get_by_status_returns_correct_invoices() {
     client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
     client.create(&issuer, &buyer, &2_000_000_000, &due_date, &usdc);
 
-    let created = client.get_by_status(&InvoiceStatus::Created);
+    let created = client.get_by_status(&InvoiceStatus::Created, &0, &MAX_PAGE_SIZE);
     assert_eq!(created.len(), 2);
 }
 
@@ -1508,15 +1508,159 @@ fn test_get_by_status_filters_correctly() {
     let id1 = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
     client.create(&issuer, &buyer, &2_000_000_000, &due_date, &usdc);
 
-    let created = client.get_by_status(&InvoiceStatus::Created);
+    let created = client.get_by_status(&InvoiceStatus::Created, &0, &MAX_PAGE_SIZE);
     assert_eq!(created.len(), 2);
 
     attest(&env, &client, &id1);
     client.list_for_financing(&id1, &DEFAULT_DISCOUNT_BPS);
-    let created = client.get_by_status(&InvoiceStatus::Created);
+    let created = client.get_by_status(&InvoiceStatus::Created, &0, &MAX_PAGE_SIZE);
     assert_eq!(created.len(), 1);
-    let listed = client.get_by_status(&InvoiceStatus::Listed);
+    let listed = client.get_by_status(&InvoiceStatus::Listed, &0, &MAX_PAGE_SIZE);
     assert_eq!(listed.len(), 1);
+}
+
+// ============== ISSUE #71: PAGINATED INDEX QUERIES ==============
+
+// Each `get_by_*` view takes a zero-based `page` and a `page_size`, so the
+// number of invoices hydrated per call is bounded by `MAX_PAGE_SIZE`. These
+// tests pin the page arithmetic, the empty tail page, the zero-page-size and
+// oversized-page edge cases, and that the pages tile the index without gaps or
+// duplication.
+
+#[test]
+fn test_get_by_issuer_paginates() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    for _ in 0..5 {
+        client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    }
+
+    let page0 = client.get_by_issuer(&issuer, &0, &2);
+    let page1 = client.get_by_issuer(&issuer, &1, &2);
+    let page2 = client.get_by_issuer(&issuer, &2, &2);
+    assert_eq!(page0.len(), 2);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page2.len(), 1);
+
+    // Pages at or past the end are empty rather than panicking.
+    assert_eq!(client.get_by_issuer(&issuer, &3, &2).len(), 0);
+    assert_eq!(client.get_by_issuer(&issuer, &u32::MAX, &2).len(), 0);
+
+    // A zero-sized page returns nothing.
+    assert_eq!(client.get_by_issuer(&issuer, &0, &0).len(), 0);
+
+    // The pages tile the full index: concatenating them reproduces the
+    // unpaginated result set in order, with no gaps or duplicates.
+    let all = client.get_by_issuer(&issuer, &0, &MAX_PAGE_SIZE);
+    assert_eq!(all.len(), 5);
+    let mut combined = soroban_sdk::Vec::new(&env);
+    for page in [&page0, &page1, &page2] {
+        for i in 0..page.len() {
+            combined.push_back(page.get(i).unwrap().id);
+        }
+    }
+    for i in 0..all.len() {
+        assert_eq!(combined.get(i).unwrap(), all.get(i).unwrap().id);
+    }
+}
+
+#[test]
+fn test_get_by_buyer_paginates() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    for _ in 0..5 {
+        client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    }
+
+    assert_eq!(client.get_by_buyer(&buyer, &0, &2).len(), 2);
+    assert_eq!(client.get_by_buyer(&buyer, &1, &2).len(), 2);
+    assert_eq!(client.get_by_buyer(&buyer, &2, &2).len(), 1);
+    assert_eq!(client.get_by_buyer(&buyer, &3, &2).len(), 0);
+    assert_eq!(client.get_by_buyer(&buyer, &0, &MAX_PAGE_SIZE).len(), 5);
+}
+
+#[test]
+fn test_get_by_status_paginates() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    for _ in 0..5 {
+        client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    }
+
+    assert_eq!(
+        client.get_by_status(&InvoiceStatus::Created, &0, &2).len(),
+        2
+    );
+    assert_eq!(
+        client.get_by_status(&InvoiceStatus::Created, &1, &2).len(),
+        2
+    );
+    assert_eq!(
+        client.get_by_status(&InvoiceStatus::Created, &2, &2).len(),
+        1
+    );
+    assert_eq!(
+        client.get_by_status(&InvoiceStatus::Created, &3, &2).len(),
+        0
+    );
+    assert_eq!(
+        client
+            .get_by_status(&InvoiceStatus::Created, &0, &MAX_PAGE_SIZE)
+            .len(),
+        5
+    );
+}
+
+// The status index is append-only, so a page can legitimately be shorter than
+// `page_size` when it contains entries whose invoice has since moved on. Pin
+// that documented behaviour: a stale slot is skipped and the live invoice shows
+// up on a later page.
+#[test]
+fn test_get_by_status_page_filters_stale_entries() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+
+    let stale_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    client.create(&issuer, &buyer, &2_000_000_000, &due_date, &usdc);
+
+    // Move the first invoice out of Created; its slot remains in the index.
+    attest(&env, &client, &stale_id);
+    client.list_for_financing(&stale_id, &DEFAULT_DISCOUNT_BPS);
+
+    // Page 0 loads the stale entry, which the status filter drops.
+    assert_eq!(
+        client.get_by_status(&InvoiceStatus::Created, &0, &1).len(),
+        0
+    );
+    // Page 1 loads the still-Created invoice.
+    let page1 = client.get_by_status(&InvoiceStatus::Created, &1, &1);
+    assert_eq!(page1.len(), 1);
+    assert_ne!(page1.get(0).unwrap().id, stale_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #27)")]
+fn test_get_by_status_rejects_oversized_page() {
+    let (env, client, issuer, buyer, _, usdc) = setup();
+    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
+    client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+
+    // One over the cap defeats the per-call gas bound pagination provides.
+    client.get_by_status(&InvoiceStatus::Created, &0, &(MAX_PAGE_SIZE + 1));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #27)")]
+fn test_get_by_issuer_rejects_oversized_page() {
+    let (_env, client, issuer, _buyer, _, _usdc) = setup();
+    client.get_by_issuer(&issuer, &0, &(MAX_PAGE_SIZE + 1));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #27)")]
+fn test_get_by_buyer_rejects_oversized_page() {
+    let (_env, client, _issuer, buyer, _, _usdc) = setup();
+    client.get_by_buyer(&buyer, &0, &(MAX_PAGE_SIZE + 1));
 }
 
 #[test]
@@ -2554,7 +2698,7 @@ fn assert_status_index_consistency(client: &InvoiceContractClient, invoice_id: &
     ];
 
     for status in statuses {
-        let indexed = client.get_by_status(&status);
+        let indexed = client.get_by_status(&status, &0, &MAX_PAGE_SIZE);
         if status == invoice.status {
             assert_eq!(indexed.len(), 1);
             assert_eq!(indexed.get(0).unwrap().id, *invoice_id);
@@ -3185,13 +3329,13 @@ fn test_create_writes_to_issuer_index() {
     });
 
     // Public API: get_by_issuer returns the invoice
-    let invoices = client.get_by_issuer(&issuer);
+    let invoices = client.get_by_issuer(&issuer, &0, &MAX_PAGE_SIZE);
     assert_eq!(invoices.len(), 1);
     assert_eq!(invoices.get(0).unwrap().id, invoice_id);
 
     // A different (unused) issuer address returns no invoices
     let other = Address::generate(&env);
-    let empty = client.get_by_issuer(&other);
+    let empty = client.get_by_issuer(&other, &0, &MAX_PAGE_SIZE);
     assert_eq!(empty.len(), 0);
 
     // Verify the invoice_created event was emitted by the invoice contract
@@ -3228,13 +3372,13 @@ fn test_create_writes_to_buyer_index() {
     });
 
     // Public API: get_by_buyer returns the invoice
-    let invoices = client.get_by_buyer(&buyer);
+    let invoices = client.get_by_buyer(&buyer, &0, &MAX_PAGE_SIZE);
     assert_eq!(invoices.len(), 1);
     assert_eq!(invoices.get(0).unwrap().id, invoice_id);
 
     // A different (unused) buyer address returns no invoices
     let other = Address::generate(&env);
-    let empty = client.get_by_buyer(&other);
+    let empty = client.get_by_buyer(&other, &0, &MAX_PAGE_SIZE);
     assert_eq!(empty.len(), 0);
 
     // Verify the invoice_created event was emitted by the invoice contract
@@ -3302,8 +3446,8 @@ fn test_create_writes_to_both_indexes_multiple_invoices() {
     });
 
     // Public API assertions
-    assert_eq!(client.get_by_issuer(&issuer).len(), 2);
-    assert_eq!(client.get_by_buyer(&buyer).len(), 2);
+    assert_eq!(client.get_by_issuer(&issuer, &0, &MAX_PAGE_SIZE).len(), 2);
+    assert_eq!(client.get_by_buyer(&buyer, &0, &MAX_PAGE_SIZE).len(), 2);
 }
 
 #[test]
@@ -3318,28 +3462,28 @@ fn test_create_indexes_are_party_specific() {
     let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
 
     // Issuer should see the invoice in their issuer index
-    let issuer_invoices = client.get_by_issuer(&issuer);
+    let issuer_invoices = client.get_by_issuer(&issuer, &0, &MAX_PAGE_SIZE);
     assert_eq!(issuer_invoices.len(), 1);
     assert_eq!(issuer_invoices.get(0).unwrap().id, invoice_id);
 
     // Buyer should see the invoice in their buyer index
-    let buyer_invoices = client.get_by_buyer(&buyer);
+    let buyer_invoices = client.get_by_buyer(&buyer, &0, &MAX_PAGE_SIZE);
     assert_eq!(buyer_invoices.len(), 1);
     assert_eq!(buyer_invoices.get(0).unwrap().id, invoice_id);
 
     // Issuer should NOT see the invoice in their buyer index
-    let issuer_as_buyer = client.get_by_buyer(&issuer);
+    let issuer_as_buyer = client.get_by_buyer(&issuer, &0, &MAX_PAGE_SIZE);
     assert_eq!(issuer_as_buyer.len(), 0);
 
     // Buyer should NOT see the invoice in their issuer index
-    let buyer_as_issuer = client.get_by_issuer(&buyer);
+    let buyer_as_issuer = client.get_by_issuer(&buyer, &0, &MAX_PAGE_SIZE);
     assert_eq!(buyer_as_issuer.len(), 0);
 
     // An unrelated third party should see nothing in either index
     let stranger = Address::generate(&env);
     registry.register(&stranger);
-    assert_eq!(client.get_by_issuer(&stranger).len(), 0);
-    assert_eq!(client.get_by_buyer(&stranger).len(), 0);
+    assert_eq!(client.get_by_issuer(&stranger, &0, &MAX_PAGE_SIZE).len(), 0);
+    assert_eq!(client.get_by_buyer(&stranger, &0, &MAX_PAGE_SIZE).len(), 0);
 }
 
 #[test]

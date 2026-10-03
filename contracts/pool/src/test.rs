@@ -993,16 +993,17 @@ fn test_fund_invoice_unlisted_invoice_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #8)")]
+#[should_panic(expected = "Error(Contract, #16)")]
 fn test_fund_invoice_already_funded_invoice_panics() {
     // After successfully funding an invoice, a second call to fund_invoice
-    // must be rejected with InvoiceNotListed (#8) since the invoice status
-    // is now Funded (2) rather than Listed (1).
+    // must be rejected with AlreadyFunded (#16): the pool's own FundedInvoice
+    // guard is evaluated first and is the authoritative record that this
+    // invoice was already funded here. Refs: issue #444.
     let te = setup();
     te.pool.deposit(&te.lp, &100_000_000_000);
     let invoice_id = create_and_list(&te, &te.usdc_id);
     te.pool.fund_invoice(&invoice_id);
-    // Second funding attempt should panic — invoice is no longer Listed
+    // Second funding attempt must be rejected by the pool's own guard.
     te.pool.fund_invoice(&invoice_id);
 }
 
@@ -2476,6 +2477,55 @@ fn test_handle_default_unknown_invoice_panics() {
     te.pool.handle_default(&dummy_id);
 }
 
+// Issue #443: `handle_default` for an invoice the pool never funded must not
+// mutate any pool state. The current implementation rejects the call with
+// InvoiceNotFound (#10) *before* it touches any accounting — the issue's
+// "returns false" description predates that guard, and the exact error code is
+// pinned by `test_handle_default_unknown_invoice_panics` above — so this test
+// pins the safety-critical half: the rejected call writes nothing.
+#[test]
+fn test_handle_default_unknown_invoice_leaves_pool_state_unchanged() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    // Fund a real invoice so the pool holds non-trivial accounting to protect.
+    let funded_id = create_and_list(&te, &te.usdc_id);
+    assert!(te.pool.fund_invoice(&funded_id));
+
+    let stats_before = te.pool.get_stats();
+    let position_before = te.pool.get_lp_position(&te.lp);
+
+    let unknown_id = BytesN::from_array(&te.env, &[7u8; 32]);
+    let result = te.pool.try_handle_default(&unknown_id);
+    assert!(
+        result.is_err(),
+        "handle_default on an unfunded invoice must be rejected"
+    );
+
+    // Pool accounting is byte-for-byte unchanged by the rejected call.
+    let stats_after = te.pool.get_stats();
+    assert_eq!(stats_after.total_deposits, stats_before.total_deposits);
+    assert_eq!(stats_after.total_funded, stats_before.total_funded);
+    assert_eq!(
+        stats_after.active_invoice_count,
+        stats_before.active_invoice_count
+    );
+    assert_eq!(
+        stats_after.total_loss_realised,
+        stats_before.total_loss_realised
+    );
+    assert_eq!(stats_after.total_shares, stats_before.total_shares);
+    let position_after = te.pool.get_lp_position(&te.lp);
+    assert_eq!(position_after.shares, position_before.shares);
+    assert_eq!(position_after.usdc_value, position_before.usdc_value);
+
+    // The unrelated funded invoice's entry is still present and intact.
+    let funded_key = DataKey::FundedInvoice(funded_id.clone());
+    let still_funded: u128 = te.env.as_contract(&te.pool_id, || {
+        te.env.storage().persistent().get(&funded_key).unwrap()
+    });
+    assert_eq!(still_funded, DEFAULT_FUNDED_AMOUNT);
+}
+
 #[test]
 fn test_deposit_when_deposits_zero_but_shares_exist() {
     let te = setup();
@@ -3094,6 +3144,65 @@ fn test_fund_invoice_succeeds_when_no_prior_funded_entry() {
         te.env.storage().persistent().get(&funded_key).unwrap()
     });
     assert_eq!(funded_amount, DEFAULT_FUNDED_AMOUNT);
+}
+
+// ============== ISSUE #444: DOUBLE FUNDING / FUND AFTER SETTLEMENT ==============
+
+// Calling `fund_invoice` twice for the same invoice is rejected by the pool's
+// own `FundedInvoice` guard with AlreadyFunded (#16). That guard is what stops
+// a replay from double-locking escrow funds or double-counting
+// `active_invoice_count` for one invoice.
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_fund_invoice_twice_panics_already_funded() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+
+    assert!(te.pool.fund_invoice(&invoice_id));
+    // Replay: the FundedInvoice entry committed by the first call is the
+    // authoritative record, so this must fail with AlreadyFunded rather than
+    // silently funding again.
+    te.pool.fund_invoice(&invoice_id);
+}
+
+// Once an invoice is repaid its funded entry has been settled (and removed)
+// and the invoice is no longer Listed, so it can never be funded again.
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_fund_invoice_after_repayment_panics() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let invoice_id = fund_and_repay_invoice(&te);
+    assert_eq!(
+        te.invoice.get(&invoice_id).status,
+        trusttrove_invoice::InvoiceStatus::Repaid
+    );
+
+    te.pool.fund_invoice(&invoice_id);
+}
+
+// After default the funded entry has been removed and the invoice is
+// Defaulted, so re-funding is likewise rejected.
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_fund_invoice_after_default_panics() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    assert!(te.pool.fund_invoice(&invoice_id));
+
+    // Move past the default grace period and settle the default.
+    te.env
+        .ledger()
+        .set_timestamp(te.env.ledger().timestamp() + 60);
+    assert!(te.pool.handle_default(&invoice_id));
+    assert_eq!(
+        te.invoice.get(&invoice_id).status,
+        trusttrove_invoice::InvoiceStatus::Defaulted
+    );
+
+    te.pool.fund_invoice(&invoice_id);
 }
 
 // ============== ISSUE #281: INSTANCE TTL EXTENSION ==============

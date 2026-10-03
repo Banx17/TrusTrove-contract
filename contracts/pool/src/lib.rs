@@ -1020,8 +1020,10 @@ impl PoolContract {
     /// `InvoiceContract::list_for_financing` for the rationale.
     ///
     /// # Panics
+    /// * `AlreadyFunded` if a `FundedInvoice` entry already exists for this
+    ///   invoice id. This check runs first, so a replay of an already-recorded
+    ///   funding always surfaces `AlreadyFunded` rather than a status error.
     /// * `InvoiceNotListed` if the invoice is not in listed status.
-    /// * `AlreadyFunded` if a `FundedInvoice` entry already exists for this invoice id.
     /// * `IssuerNotVerified` if the invoice issuer's registry verification has
     ///   since been revoked.
     /// * `BuyerNotVerified` if the invoice buyer's registry verification has
@@ -1045,6 +1047,17 @@ impl PoolContract {
         let invoice_contract = Self::invoice_contract(&env)
             .expect("pool is not initialized: invoice contract missing");
 
+        // The pool's own idempotency guard runs before any cross-contract read
+        // (and before the invoice-status gate below) so a replay of an
+        // already-recorded funding always surfaces the precise `AlreadyFunded`
+        // error instead of a generic `InvoiceNotListed`. The funding entry is
+        // the authoritative record that this invoice was already funded here.
+        // Refs: issue #444.
+        let funded_key = DataKey::FundedInvoice(invoice_id.clone());
+        if env.storage().persistent().has(&funded_key) {
+            panic_with_error!(&env, PoolError::AlreadyFunded);
+        }
+
         let mut args = Vec::new(&env);
         args.push_back(invoice_id.clone().into_val(&env));
         let (invoice_status, face_value, discount_bps): (u32, u128, u32) = env.invoke_contract(
@@ -1054,11 +1067,6 @@ impl PoolContract {
         );
         if invoice_status != 1 {
             panic_with_error!(&env, PoolError::InvoiceNotListed);
-        }
-
-        let funded_key = DataKey::FundedInvoice(invoice_id.clone());
-        if env.storage().persistent().has(&funded_key) {
-            panic_with_error!(&env, PoolError::AlreadyFunded);
         }
 
         let registry_id = Self::registry_contract(&env);

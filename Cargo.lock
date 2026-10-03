@@ -1554,6 +1554,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "trusttrove-pause"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "trusttrove-pool"
 version = "0.1.0"
 dependencies = [

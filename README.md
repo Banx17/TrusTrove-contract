@@ -116,8 +116,9 @@ repay_early(invoice_id) → bool
 trigger_default(invoice_id) → bool
 get(invoice_id) → Invoice
 get_attestation(invoice_id) → Option<Attestation>
-get_by_status(status) → Vec<Invoice>
-get_by_issuer(address) → Vec<Invoice>
+get_by_status(status, page, page_size) → Vec<Invoice>
+get_by_issuer(address, page, page_size) → Vec<Invoice>
+get_by_buyer(address, page, page_size) → Vec<Invoice>
 get_invoice_count_by_issuer(address) → u32
 get_invoice_count_by_buyer(address) → u32
 get_counts() → Map<String, u64>
@@ -442,6 +443,8 @@ If you want to contribute to governance design, open an issue tagged `complexity
 ### No emergency pause mechanism
 
 There is currently no circuit breaker. If a critical bug is found post-deployment the only recourse is to stop directing traffic to the affected contracts via the frontend.
+
+**Progress (issue #712):** the shared `contracts/pause` crate (`trusttrove-pause`) now provides the `PauseState` storage key plus the `set_paused()` / `require_not_paused()` helpers each contract will call from its state-changing entry points. The `admin_pause() / admin_unpause()` entry points themselves are not yet wired into the contracts.
 
 **Roadmap:** Add an `admin_pause() / admin_unpause()` function pair to each contract, guarded behind multi-sig, that blocks state-changing calls while reads remain live.
 
