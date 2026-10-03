@@ -36,7 +36,24 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "_uD_u"
+                      },
+                      "val": {
+                        "string": "rupnjp__j3UJ"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "o8P_ae"
+                      },
+                      "val": {
+                        "string": "xbrkbzPy"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -141,7 +158,24 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": []
+                        "map": [
+                          {
+                            "key": {
+                              "string": "_uD_u"
+                            },
+                            "val": {
+                              "string": "rupnjp__j3UJ"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "o8P_ae"
+                            },
+                            "val": {
+                              "string": "xbrkbzPy"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -462,7 +496,24 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "_uD_u"
+                      },
+                      "val": {
+                        "string": "rupnjp__j3UJ"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "o8P_ae"
+                      },
+                      "val": {
+                        "string": "xbrkbzPy"
+                      }
+                    }
+                  ]
                 }
               ]
             }

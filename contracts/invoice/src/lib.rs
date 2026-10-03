@@ -5,6 +5,7 @@ use soroban_sdk::{
     xdr::{FromXdr, ToXdr},
     Address, Bytes, BytesN, Env, IntoVal, Map, String, Symbol, Vec,
 };
+use trusttrove_pause::{require_not_paused, set_paused};
 
 mod constants;
 mod errors;
@@ -38,6 +39,18 @@ pub const MAX_INVOICE_LIFETIME_SECONDS: u64 = 10 * 365 * 24 * 60 * 60;
 /// against an unrelated contract or message format.
 pub const ATTESTATION_DOMAIN_SEPARATOR: [u8; 32] = *b"TrusTrove.InvoiceAttestation.v1_";
 
+/// Maximum number of invoices a single paginated `get_by_*` query may return.
+///
+/// Pagination exists to keep each read within the Soroban per-transaction
+/// CPU/memory budget (issue #71): without a hard cap a caller could pass a
+/// huge `page_size` and hydrate the entire index in one call, defeating the
+/// point. `50` mirrors the workspace's existing batch ceiling
+/// (`batch_register_issuers` caps at 50 entries per call).
+///
+/// Requests with `page_size > MAX_PAGE_SIZE` panic with
+/// [`InvoiceError::InvalidPageSize`].
+pub const MAX_PAGE_SIZE: u32 = 50;
+
 #[contract]
 pub struct InvoiceContract;
 
@@ -62,6 +75,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::AlreadyInitialized` if the contract has already been initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the registry address equals
+    ///   the admin or this invoice contract.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -71,10 +86,12 @@ impl InvoiceContract {
     /// client.initialize(&admin, &registry_address);
     /// ```
     pub fn initialize(env: Env, admin: Address, registry_contract: Address) {
+        require_not_paused(&env);
         if env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(&env, InvoiceError::AlreadyInitialized);
         }
         admin.require_auth();
+        Self::assert_valid_wiring_address(&env, &registry_contract, &admin, None, Vec::new(&env));
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -154,6 +171,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the admin is not initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the pool address aliases the
+    ///   admin, this invoice contract, registry, escrow, or agent registry.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -163,12 +182,32 @@ impl InvoiceContract {
     /// client.set_pool_contract(&pool_address);
     /// ```
     pub fn set_pool_contract(env: Env, pool_contract: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryContract);
+        let mut other_wired_contracts = Vec::new(&env);
+        if let Some(escrow) = env.storage().instance().get(&DataKey::EscrowContract) {
+            other_wired_contracts.push_back(escrow);
+        }
+        if let Some(agent_registry) = env
+            .storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract)
+        {
+            other_wired_contracts.push_back(agent_registry);
+        }
+        Self::assert_valid_wiring_address(
+            &env,
+            &pool_contract,
+            &admin,
+            registry,
+            other_wired_contracts,
+        );
         let old_pool: Option<Address> = env.storage().instance().get(&DataKey::PoolContract);
         env.storage()
             .instance()
@@ -219,6 +258,8 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the admin is not initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the agent-registry address
+    ///   aliases the admin, this invoice contract, registry, pool, or escrow.
     ///
     /// # Returns
     /// * `()` - No value is returned.
@@ -228,12 +269,28 @@ impl InvoiceContract {
     /// client.set_agent_registry_contract(&agent_registry_address);
     /// ```
     pub fn set_agent_registry_contract(env: Env, agent_registry_contract: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryContract);
+        let mut other_wired_contracts = Vec::new(&env);
+        if let Some(pool) = env.storage().instance().get(&DataKey::PoolContract) {
+            other_wired_contracts.push_back(pool);
+        }
+        if let Some(escrow) = env.storage().instance().get(&DataKey::EscrowContract) {
+            other_wired_contracts.push_back(escrow);
+        }
+        Self::assert_valid_wiring_address(
+            &env,
+            &agent_registry_contract,
+            &admin,
+            registry,
+            other_wired_contracts,
+        );
         let old: Option<Address> = env
             .storage()
             .instance()
@@ -292,16 +349,39 @@ impl InvoiceContract {
     ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the admin is not initialized.
+    /// * `InvoiceError::InvalidConfiguration` if the escrow address aliases
+    ///   the admin, this invoice contract, registry, pool, or agent registry.
     ///
     /// # Returns
     /// * `()` - No value is returned.
     pub fn set_escrow_contract(env: Env, escrow_contract: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+
+        let registry: Option<Address> = env.storage().instance().get(&DataKey::RegistryContract);
+        let mut other_wired_contracts = Vec::new(&env);
+        if let Some(pool) = env.storage().instance().get(&DataKey::PoolContract) {
+            other_wired_contracts.push_back(pool);
+        }
+        if let Some(agent_registry) = env
+            .storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract)
+        {
+            other_wired_contracts.push_back(agent_registry);
+        }
+        Self::assert_valid_wiring_address(
+            &env,
+            &escrow_contract,
+            &admin,
+            registry,
+            other_wired_contracts,
+        );
 
         let old_escrow: Option<Address> = env.storage().instance().get(&DataKey::EscrowContract);
         env.storage()
@@ -402,6 +482,7 @@ impl InvoiceContract {
     /// client.add_supported_asset(&usdc);
     /// ```
     pub fn add_supported_asset(env: Env, asset: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -451,6 +532,7 @@ impl InvoiceContract {
     /// client.remove_supported_asset(&usdc);
     /// ```
     pub fn remove_supported_asset(env: Env, asset: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -571,6 +653,7 @@ impl InvoiceContract {
         due_date: u64,
         funding_asset: Address,
     ) -> BytesN<32> {
+        require_not_paused(&env);
         issuer.require_auth();
 
         if issuer == buyer {
@@ -724,8 +807,6 @@ impl InvoiceContract {
     ///   has since been revoked.
     /// * `InvoiceError::BuyerNotVerified` if the buyer's registry verification
     ///   has since been revoked.
-    /// * `InvoiceError::InvalidDiscount` if `discount_bps` is zero (a 0% discount is
-    ///   nonsensical — the pool would fund at face value with zero yield).
     /// * `InvoiceError::DiscountTooHigh` if `discount_bps` is greater than 5000.
     ///
     /// # Returns
@@ -736,6 +817,7 @@ impl InvoiceContract {
     /// client.list_for_financing(&invoice_id, 250);
     /// ```
     pub fn list_for_financing(env: Env, invoice_id: BytesN<32>, discount_bps: u32) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -771,9 +853,6 @@ impl InvoiceContract {
             &invoice.buyer,
             InvoiceError::BuyerNotVerified,
         );
-        if discount_bps == 0 {
-            panic_with_error!(&env, InvoiceError::InvalidDiscount);
-        }
         if discount_bps > 5000 {
             panic_with_error!(&env, InvoiceError::DiscountTooHigh);
         }
@@ -870,6 +949,7 @@ impl InvoiceContract {
         payload: Bytes,
         signature: BytesN<65>,
     ) {
+        require_not_paused(&env);
         // NO require_auth on the caller — submission is permissionless by
         // design. Security comes entirely from the signature check below,
         // not from who calls this.
@@ -970,6 +1050,7 @@ impl InvoiceContract {
         asset_address: Address,
         funded_amount: u128,
     ) -> bool {
+        require_not_paused(&env);
         let configured_pool: Address = env
             .storage()
             .instance()
@@ -1049,6 +1130,7 @@ impl InvoiceContract {
     /// client.mark_shipped(&invoice_id);
     /// ```
     pub fn mark_shipped(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1106,6 +1188,7 @@ impl InvoiceContract {
     /// client.confirm_delivery(&invoice_id, &buyer);
     /// ```
     pub fn confirm_delivery(env: Env, invoice_id: BytesN<32>, confirmer: Address) -> bool {
+        require_not_paused(&env);
         confirmer.require_auth();
 
         let inv_key = DataKey::Invoice(invoice_id.clone());
@@ -1190,6 +1273,7 @@ impl InvoiceContract {
     /// to the pool, the pool's repayment accounting is updated, the invoice transitions
     /// to `Repaid`, and `invoice_repaid` is emitted.
     pub fn repay_partial(env: Env, invoice_id: BytesN<32>, amount: u128) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
             .storage()
@@ -1311,6 +1395,7 @@ impl InvoiceContract {
     }
 
     pub fn repay(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
             .storage()
@@ -1355,6 +1440,7 @@ impl InvoiceContract {
     /// client.repay_early(&invoice_id);
     /// ```
     pub fn repay_early(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
             .storage()
@@ -1510,6 +1596,7 @@ impl InvoiceContract {
     /// for a pinned repro.
     ///
     pub fn trigger_default(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1587,6 +1674,7 @@ impl InvoiceContract {
     /// client.mark_defaulted(&invoice_id);
     /// ```
     pub fn mark_defaulted(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1625,6 +1713,7 @@ impl InvoiceContract {
     }
 
     pub fn set_expiry_window(env: Env, window: u64) {
+        require_not_paused(&env);
         if window > 31_536_000u64 {
             panic_with_error!(&env, InvoiceError::InvalidExpiryWindow);
         }
@@ -1666,16 +1755,43 @@ impl InvoiceContract {
             .unwrap_or(7 * 24 * 60 * 60)
     }
 
-    /// Helper to check authorization for a given address.
-    /// This is invoked dynamically via `try_invoke_contract` in `expire_listing`.
-    /// Rust's dead-code analysis can't see the dynamic dispatch via `Symbol`, so
-    /// the `#[allow(dead_code)]` keeps it in the WASM dispatch table.
-    #[allow(dead_code)]
-    fn check_auth(_env: Env, address: Address) {
-        address.require_auth();
-    }
+    /// Expires a listing whose expiry window has passed.
+    ///
+    /// Callable by the invoice's stored issuer or the contract admin — the
+    /// same dual-caller pattern as `confirm_delivery` and escrow's
+    /// `handle_default`: `caller` must explicitly authorize, and is then
+    /// verified against the stored issuer and admin. The previous
+    /// `try_invoke_contract`-based issuer probe (a private `check_auth`
+    /// self-call) violated Soroban's no-re-entry rule under real signatures,
+    /// so the issuer path could never authenticate outside mocked tests.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `invoice_id` - The invoice whose listing should be expired.
+    /// * `caller` - The address authorizing the expiry (issuer or admin).
+    ///
+    /// # Auth
+    /// Requires authorization from `caller`, who must be the invoice's stored
+    /// issuer or the stored admin address.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotFound` if the invoice or admin cannot be found.
+    /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Listed`.
+    /// * `InvoiceError::NotAuthorized` if `caller` is neither the issuer nor the admin.
+    /// * `InvoiceError::ListingNotExpired` if `now < listed_at + expiry_window`.
+    /// * `InvoiceError::MathOverflow` if `listed_at + expiry_window` overflows.
+    ///
+    /// # Returns
+    /// * `bool` - `true` when the listing is expired.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.expire_listing(&invoice_id, &issuer);
+    /// ```
+    pub fn expire_listing(env: Env, invoice_id: BytesN<32>, caller: Address) -> bool {
+        require_not_paused(&env);
+        caller.require_auth();
 
-    pub fn expire_listing(env: Env, invoice_id: BytesN<32>) -> bool {
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1693,16 +1809,8 @@ impl InvoiceContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
 
-        let is_issuer = env
-            .try_invoke_contract::<(), soroban_sdk::Error>(
-                &env.current_contract_address(),
-                &Symbol::new(&env, "check_auth"),
-                (invoice.issuer.clone(),).into_val(&env),
-            )
-            .is_ok();
-
-        if !is_issuer {
-            admin.require_auth();
+        if caller != invoice.issuer && caller != admin {
+            panic_with_error!(&env, InvoiceError::NotAuthorized);
         }
 
         let listed_at = invoice.listed_at.unwrap_or(0);
@@ -1886,33 +1994,49 @@ impl InvoiceContract {
         Self::get_invoice(&env, invoice_id)
     }
 
-    /// Lists invoices for a given status.
+    /// Lists a page of invoices for a given status.
+    ///
+    /// The status index is append-only (entries are not reclaimed when an
+    /// invoice moves to another status), so results are filtered to invoices
+    /// whose *current* status matches and a page can therefore be shorter than
+    /// `page_size`. Pagination bounds the number of invoices hydrated per call,
+    /// keeping the read within the Soroban CPU/memory budget (issue #71).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `status` - The invoice status filter.
+    /// * `page` - Zero-based page index. Pages starting past the end of the
+    ///   index return an empty `Vec`.
+    /// * `page_size` - Maximum invoices to return for this page. Must be
+    ///   `<= MAX_PAGE_SIZE`.
     ///
     /// # Auth
     /// No authorization is required.
     ///
     /// # Panics
-    /// Does not panic.
+    /// * `InvoiceError::InvalidPageSize` if `page_size > MAX_PAGE_SIZE`.
     ///
     /// # Returns
-    /// * `Vec<Invoice>` - The invoices matching the status.
+    /// * `Vec<Invoice>` - The invoices matching the status on the requested page.
     ///
     /// # Example
     /// ```ignore
-    /// let invoices = client.get_by_status(InvoiceStatus::Created);
+    /// let invoices = client.get_by_status(&InvoiceStatus::Created, 0, 20);
     /// ```
-    pub fn get_by_status(env: Env, status: InvoiceStatus) -> Vec<Invoice> {
+    pub fn get_by_status(
+        env: Env,
+        status: InvoiceStatus,
+        page: u32,
+        page_size: u32,
+    ) -> Vec<Invoice> {
         let count: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::StatusIndexCount(status as u32))
             .unwrap_or(0);
+        let (start, end) = page_range(&env, count, page, page_size);
         let mut ids: Vec<BytesN<32>> = Vec::new(&env);
-        for i in 0..count {
+        for i in start..end {
             let id: BytesN<32> = env
                 .storage()
                 .persistent()
@@ -1933,33 +2057,41 @@ impl InvoiceContract {
         result
     }
 
-    /// Lists invoices created by a given issuer.
+    /// Lists a page of invoices created by a given issuer.
+    ///
+    /// Pagination bounds the number of invoices hydrated per call, keeping the
+    /// read within the Soroban CPU/memory budget (issue #71).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `address` - The issuer address.
+    /// * `page` - Zero-based page index. Pages starting past the end of the
+    ///   index return an empty `Vec`.
+    /// * `page_size` - Maximum invoices to return for this page. Must be
+    ///   `<= MAX_PAGE_SIZE`.
     ///
     /// # Auth
     /// No authorization is required.
     ///
     /// # Panics
-    /// Does not panic.
+    /// * `InvoiceError::InvalidPageSize` if `page_size > MAX_PAGE_SIZE`.
     ///
     /// # Returns
-    /// * `Vec<Invoice>` - The invoices for the issuer.
+    /// * `Vec<Invoice>` - The invoices for the issuer on the requested page.
     ///
     /// # Example
     /// ```ignore
-    /// let invoices = client.get_by_issuer(&issuer);
+    /// let invoices = client.get_by_issuer(&issuer, 0, 20);
     /// ```
-    pub fn get_by_issuer(env: Env, address: Address) -> Vec<Invoice> {
+    pub fn get_by_issuer(env: Env, address: Address, page: u32, page_size: u32) -> Vec<Invoice> {
         let count: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::IssuerIndexCount(address.clone()))
             .unwrap_or(0);
+        let (start, end) = page_range(&env, count, page, page_size);
         let mut ids: Vec<BytesN<32>> = Vec::new(&env);
-        for i in 0..count {
+        for i in start..end {
             let id: BytesN<32> = env
                 .storage()
                 .persistent()
@@ -1970,33 +2102,41 @@ impl InvoiceContract {
         hydrate_ids(&env, ids)
     }
 
-    /// Lists invoices associated with a given buyer.
+    /// Lists a page of invoices associated with a given buyer.
+    ///
+    /// Pagination bounds the number of invoices hydrated per call, keeping the
+    /// read within the Soroban CPU/memory budget (issue #71).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
     /// * `address` - The buyer address.
+    /// * `page` - Zero-based page index. Pages starting past the end of the
+    ///   index return an empty `Vec`.
+    /// * `page_size` - Maximum invoices to return for this page. Must be
+    ///   `<= MAX_PAGE_SIZE`.
     ///
     /// # Auth
     /// No authorization is required.
     ///
     /// # Panics
-    /// Does not panic.
+    /// * `InvoiceError::InvalidPageSize` if `page_size > MAX_PAGE_SIZE`.
     ///
     /// # Returns
-    /// * `Vec<Invoice>` - The invoices for the buyer.
+    /// * `Vec<Invoice>` - The invoices for the buyer on the requested page.
     ///
     /// # Example
     /// ```ignore
-    /// let invoices = client.get_by_buyer(&buyer);
+    /// let invoices = client.get_by_buyer(&buyer, 0, 20);
     /// ```
-    pub fn get_by_buyer(env: Env, address: Address) -> Vec<Invoice> {
+    pub fn get_by_buyer(env: Env, address: Address, page: u32, page_size: u32) -> Vec<Invoice> {
         let count: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::BuyerIndexCount(address.clone()))
             .unwrap_or(0);
+        let (start, end) = page_range(&env, count, page, page_size);
         let mut ids: Vec<BytesN<32>> = Vec::new(&env);
-        for i in 0..count {
+        for i in start..end {
             let id: BytesN<32> = env
                 .storage()
                 .persistent()
@@ -2178,7 +2318,23 @@ impl InvoiceContract {
         Self::get_invoice(&env, invoice_id).due_date
     }
 
+    /// Transfers invoice-contract admin ownership to `new_admin`.
+    ///
+    /// Uses the same dual-authorization pattern as `RegistryContract` and
+    /// `PoolContract`: both the current admin and `new_admin` must sign, so
+    /// ownership cannot be handed to an address that has not consented and a
+    /// compromised admin cannot unilaterally install a key it controls.
+    /// Emits `ownership_transferred`.
+    ///
+    /// # Auth
+    /// Requires authorization from both the current admin and `new_admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the contract has not been initialized.
+    /// * `ContractPaused` (via `trusttrove_pause::require_not_paused`) while
+    ///   the circuit breaker is engaged.
     pub fn transfer_ownership(env: Env, new_admin: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -2189,6 +2345,85 @@ impl InvoiceContract {
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         events::ownership_transferred(&env, &admin, &new_admin);
         Self::extend_instance_ttl(&env);
+    }
+
+    /// Engages the emergency circuit breaker.
+    ///
+    /// While paused every state-changing entry point reverts with
+    /// `ContractPaused`, while read-only views (`get`, `get_status`,
+    /// `get_counts`, ...) stay callable. Only the stored admin may pause, and
+    /// [`Self::unpause`] is intentionally never guarded so a paused contract
+    /// can always be resumed. Emits `paused`.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored `admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the contract has not been initialized.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.pause();
+    /// ```
+    pub fn pause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
+        admin.require_auth();
+        set_paused(&env, true);
+        events::paused(&env, &admin);
+        Self::extend_instance_ttl(&env);
+    }
+
+    /// Disengages the emergency circuit breaker, restoring state-changing calls.
+    ///
+    /// Deliberately *not* guarded by `require_not_paused`: otherwise a paused
+    /// contract could never be resumed. Emits `unpaused`.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored `admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the contract has not been initialized.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.unpause();
+    /// ```
+    pub fn unpause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
+        admin.require_auth();
+        set_paused(&env, false);
+        events::unpaused(&env, &admin);
+        Self::extend_instance_ttl(&env);
+    }
+
+    /// Rejects wiring an address that aliases a reserved or already-configured
+    /// contract role. `other_wired_contracts` excludes the slot being updated.
+    fn assert_valid_wiring_address(
+        env: &Env,
+        candidate: &Address,
+        admin: &Address,
+        registry_contract: Option<Address>,
+        other_wired_contracts: Vec<Address>,
+    ) {
+        if candidate == admin
+            || candidate == &env.current_contract_address()
+            || registry_contract.as_ref() == Some(candidate)
+        {
+            panic_with_error!(env, InvoiceError::InvalidConfiguration);
+        }
+        for configured in other_wired_contracts {
+            if &configured == candidate {
+                panic_with_error!(env, InvoiceError::InvalidConfiguration);
+            }
+        }
     }
 
     fn require_initialized(env: &Env) {
@@ -2403,6 +2638,31 @@ fn read_status_count(env: &Env, status: InvoiceStatus) -> u64 {
         .persistent()
         .get(&DataKey::StatusCount(status as u32))
         .unwrap_or(0u64)
+}
+
+/// Computes the half-open `[start, end)` index range for one page of an index
+/// that currently holds `count` entries.
+///
+/// Returns `(0, 0)` for any request that starts at or past the end of the
+/// index (including an overflowing `page * page_size`), so callers naturally
+/// yield an empty `Vec` instead of panicking on out-of-range pages.
+///
+/// # Panics
+/// * [`InvoiceError::InvalidPageSize`] if `page_size > MAX_PAGE_SIZE`.
+fn page_range(env: &Env, count: u32, page: u32, page_size: u32) -> (u32, u32) {
+    if page_size > MAX_PAGE_SIZE {
+        panic_with_error!(env, InvoiceError::InvalidPageSize);
+    }
+    let start = match page.checked_mul(page_size) {
+        Some(start) => start,
+        // An overflowing offset is necessarily past the end of any index.
+        None => return (0, 0),
+    };
+    if start >= count {
+        return (0, 0);
+    }
+    let end = core::cmp::min(start.saturating_add(page_size), count);
+    (start, end)
 }
 
 fn hydrate_ids(env: &Env, ids: Vec<BytesN<32>>) -> Vec<Invoice> {

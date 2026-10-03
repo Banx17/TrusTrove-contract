@@ -173,8 +173,12 @@ Cancelled = 8   // issuer cancelled before listing
   maintain a count key and an ordered list of entries.
 - Index entries are appended — no compaction on status transitions (entries
   are added to the new status but not removed from the old).
-- `get_by_status()` reads all entries for a status and only returns those
-  whose current `invoice.status` matches (to handle stale index entries).
+- `get_by_status()`, `get_by_issuer()`, and `get_by_buyer()` are paginated
+  (`page`, `page_size`, capped at `MAX_PAGE_SIZE`). Each call reads at most
+  `page_size` index entries, so cost is bounded regardless of index size.
+- `get_by_status()` still filters each page to entries whose current
+  `invoice.status` matches (to handle stale index entries), so a page may
+  contain fewer than `page_size` results.
 
 ### Storage Key Count
 
@@ -277,6 +281,26 @@ EscrowEvent {
 | `LPDepositCount(Address)` | `u32` | Number of deposits made by this LP |
 | `LPYieldEarned(Address)` | `u128` | Cumulative yield earned (updated on withdraw) |
 | `LPInitialDeposit(Address)` | `u128` | Total principal deposited by LP (tracked for yield calculation) |
+
+#### SEP-41 Share Transfers
+
+LP shares move between addresses through two public entry points that share
+one balance-movement path (`move_shares`) and emit the same standard
+`transfer(from, to, amount)` event:
+
+- `transfer(from, to, amount)` — the standard SEP-41 entry point. Generic
+  `soroban_sdk::token::Client` consumers call this directly against the pool
+  address.
+- `transfer_from(spender, from, to, amount)` — moves shares against an
+  `approve` grant, debiting the allowance.
+- `transfer_shares(from, to, amount)` — **non-standard** legacy alias of
+  `transfer`, kept for integrators that predate the SEP-41 surface. New code
+  must use `transfer`.
+
+Transfers only move balances: `TotalShares`, `TotalDeposits`, `TotalFunded`,
+yield accounting, and share price are untouched. Self-transfers are no-ops.
+The recipient's `LPShares` entry is created on first credit, exactly as a
+deposit would create it.
 
 #### SEP-41 Allowance Keys
 

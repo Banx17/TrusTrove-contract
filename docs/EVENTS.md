@@ -198,6 +198,36 @@ Emitted when contract ownership is transferred to a new admin.
 
 ---
 
+### `paused`
+
+Emitted when the admin engages the emergency circuit breaker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"paused"` |
+| `topic[1]` | `Address` | Admin who authorized the pause |
+| **Data** | `()` | None |
+
+**Emitted by:** `pause()` in `contracts/invoice/src/lib.rs`
+
+---
+
+### `unpaused`
+
+Emitted when the admin disengages the emergency circuit breaker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"unpaused"` |
+| `topic[1]` | `Address` | Admin who authorized the unpause |
+| **Data** | `()` | None |
+
+**Emitted by:** `unpause()` in `contracts/invoice/src/lib.rs`
+
+---
+
 ### `pool_contract_updated`
 
 Emitted when the pool contract address is updated.
@@ -378,9 +408,9 @@ revoke signal.
 
 ---
 
-### `ownership_transferred` (dead code)
+### `ownership_transferred`
 
-Emitted when pool ownership is transferred. Currently unused (marked `#[allow(dead_code)]`).
+Emitted when pool ownership is transferred to a new admin.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -389,7 +419,40 @@ Emitted when pool ownership is transferred. Currently unused (marked `#[allow(de
 | `topic[1]` | `Address` | Old admin |
 | **Data** | `Address` | New admin |
 
-**Source:** `contracts/pool/src/events.rs:39`
+**Emitted by:** `transfer_ownership()` in `contracts/pool/src/lib.rs`  
+**Source:** `contracts/pool/src/events.rs`
+
+---
+
+### `paused`
+
+Emitted when the admin engages the emergency circuit breaker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"paused"` |
+| `topic[1]` | `Address` | Admin who authorized the pause |
+| **Data** | `()` | None |
+
+**Emitted by:** `pause()` in `contracts/pool/src/lib.rs`  
+**Source:** `contracts/pool/src/events.rs`
+
+---
+
+### `unpaused`
+
+Emitted when the admin disengages the emergency circuit breaker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"unpaused"` |
+| `topic[1]` | `Address` | Admin who authorized the unpause |
+| **Data** | `()` | None |
+
+**Emitted by:** `unpause()` in `contracts/pool/src/lib.rs`  
+**Source:** `contracts/pool/src/events.rs`
 
 ---
 
@@ -630,13 +693,95 @@ Emitted when the registry admin role is transferred.
 
 ---
 
+### `paused`
+
+Emitted when the admin engages the emergency circuit breaker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"paused"` |
+| `topic[1]` | `Address` | Admin who authorized the pause |
+| **Data** | `()` | None |
+
+**Emitted by:** `pause()` in `contracts/registry/src/lib.rs`  
+**Source:** `contracts/registry/src/events.rs`
+
+---
+
+### `unpaused`
+
+Emitted when the admin disengages the emergency circuit breaker.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"unpaused"` |
+| `topic[1]` | `Address` | Admin who authorized the unpause |
+| **Data** | `()` | None |
+
+**Emitted by:** `unpause()` in `contracts/registry/src/lib.rs`  
+**Source:** `contracts/registry/src/events.rs`
+
+---
+
+## Pool Factory Contract
+
+**Contract:** `pool_factory_contract`
+**Source:** `contracts/pool_factory/src/events.rs`
+
+### `contract_initialized`
+
+Emitted when the pool factory is initialized.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"contract_initialized"` |
+| `topic[1]` | `Address` | Admin address |
+| **Data** | `()` | None |
+
+**Emitted by:** `initialize()` in `contracts/pool_factory/src/lib.rs`
+
+---
+
+### `pool_instance_created`
+
+Emitted when `register_asset()` deploys and initializes a new pool instance.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"pool_instance_created"` |
+| `topic[1]` | `Address` | Registered asset address |
+| **Data** | `Address` | Newly deployed pool address |
+
+**Emitted by:** `register_asset()` in `contracts/pool_factory/src/lib.rs`
+
+---
+
+### `existing_pool_registered`
+
+Emitted when `register_existing_pool()` registers a pre-existing pool for an asset.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **Topics** | | |
+| `topic[0]` | `Symbol` | `"existing_pool_registered"` |
+| `topic[1]` | `Address` | Registered asset address |
+| **Data** | `Address` | Existing pool address |
+
+**Emitted by:** `register_existing_pool()` in `contracts/pool_factory/src/lib.rs`
+
+---
+
 ## Cross-Reference: Duplicate Event Names
 
 Note that some event names appear in multiple contracts. When indexing, filter by contract address:
 
 | Event Name | Contracts |
 |------------|-----------|
-| `contract_initialized` | `invoice_contract`, `registry_contract` |
+| `contract_initialized` | `invoice_contract`, `registry_contract`, `pool_factory_contract` |
 | `invoice_funded` | `invoice_contract`, `pool_contract` |
 | `invoice_defaulted` | `invoice_contract`, `pool_contract` |
 | `ownership_transferred` | All four contracts |

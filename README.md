@@ -116,8 +116,9 @@ repay_early(invoice_id) → bool
 trigger_default(invoice_id) → bool
 get(invoice_id) → Invoice
 get_attestation(invoice_id) → Option<Attestation>
-get_by_status(status) → Vec<Invoice>
-get_by_issuer(address) → Vec<Invoice>
+get_by_status(status, page, page_size) → Vec<Invoice>
+get_by_issuer(address, page, page_size) → Vec<Invoice>
+get_by_buyer(address, page, page_size) → Vec<Invoice>
 get_invoice_count_by_issuer(address) → u32
 get_invoice_count_by_buyer(address) → u32
 get_counts() → Map<String, u64>
@@ -147,7 +148,7 @@ get_locked(invoice_id) → u128
 
 ### pool_contract
 
-USDC liquidity pool with share-based LP accounting. Share price grows as invoices repay.
+USDC liquidity pool where LP shares are a SEP-41 transferable token. Share price grows as invoices repay.
 
 ```
 deposit(lp, usdc_amount) → shares
@@ -161,7 +162,8 @@ get_protocol_fee_bps() → u32
 get_treasury() → Address
 get_stats() → PoolStats
 get_lp_position(address) → LPPosition
-transfer(from, to, amount) → ()             ← SEP-41 share transfer
+transfer(from, to, amount) → ()             ← SEP-41 share transfer (generic token::Client compatible)
+transfer_shares(from, to, amount) → ()      ← non-standard legacy alias of transfer
 approve(from, spender, amount, expiration_ledger) → ()   ← SEP-41 grant
 allowance(from, spender) → i128                          ← 0 when spent/expired
 transfer_from(spender, from, to, amount) → ()            ← spender auth, spends grant
@@ -440,11 +442,13 @@ If you want to contribute to governance design, open an issue tagged `complexity
 
 `invoice::trigger_default` is permissionless and requires no authorization (`admin.require_auth()` was removed). Anyone can trigger default processing once `now >= due_date`. This removes the single point of failure of an admin-gated default mechanism and ensures timely loss recognition and escrow fund recovery for liquidity pools without relying on admin intervention.
 
-### No emergency pause mechanism
+### Emergency pause mechanism (partial rollout)
 
-There is currently no circuit breaker. If a critical bug is found post-deployment the only recourse is to stop directing traffic to the affected contracts via the frontend.
+The `pool` and `invoice` contracts expose admin-gated `pause() / unpause()` entry points backed by the shared [`trusttrove-pause`](contracts/pause) crate. While paused, every state-changing call reverts with `ContractPaused` while read-only views remain live.
 
-**Roadmap:** Add an `admin_pause() / admin_unpause()` function pair to each contract, guarded behind multi-sig, that blocks state-changing calls while reads remain live.
+The `pool`, `invoice`, and `registry` contracts expose admin-gated `pause() / unpause()` entry points backed by the shared [`trusttrove-pause`](contracts/pause) crate (issues #713, #714, #715). While paused, every state-changing call reverts with `ContractPaused` while read-only views remain live.
+
+**Roadmap:** Wire the same circuit breaker into the remaining contract (`escrow`), and back the admin key with a multi-sig.
 
 ---
 
