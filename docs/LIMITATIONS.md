@@ -106,10 +106,12 @@ The benchmark demonstrates negligible gas overhead (~0.25% CPU instruction delta
 - Read-only view functions (`get_stats`, `get`, `get_profile`, etc.) incur
   minimal cost as they only read from storage.
 - Index enumeration functions (`get_by_status`, `get_by_issuer`,
-  `get_by_buyer`) scale linearly with the number of entries and may become
-  expensive for issuers/buyers with many invoices. The status index also
-  performs O(1) membership checks via `DataKey::StatusMembership` to filter
-  out removed entries without loading the full invoice.
+  `get_by_buyer`) are paginated (`page`, `page_size`, capped at
+  `MAX_PAGE_SIZE`), so each call hydrates a bounded number of invoices no
+  matter how many entries the index holds (issue #71). Callers page until an
+  empty result is returned. The status index is append-only, so a page can
+  return fewer than `page_size` invoices when it contains stale entries whose
+  invoice has since moved to another status.
 - `get_invoice_count_by_issuer` and `get_invoice_count_by_buyer` avoid that
   cost entirely: they read a single stored counter (`u32`) in O(1), so
   pagination and badge UIs should prefer them over `.len()` on the
@@ -212,7 +214,10 @@ are provided where available.
 
 ### Smart Contracts
 
-- Emergency pause mechanism (`admin_pause() / admin_unpause()`)
+- Emergency pause mechanism (`admin_pause() / admin_unpause()`). The shared
+  `trusttrove-pause` crate (storage key plus `set_paused()` /
+  `require_not_paused()` helpers, issue #712) has landed as the foundation;
+  the admin entry points are not yet wired into the contracts.
 - Multi-sig admin (3-of-5 Stellar signers)
 - LP-governed invoice funding (stake LP tokens to vote on invoices)
 - Dynamic utilization-based interest rate model

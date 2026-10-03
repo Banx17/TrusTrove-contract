@@ -172,8 +172,12 @@ Expired   = 7   // listing expired before funding
   maintain a count key and an ordered list of entries.
 - Index entries are appended — no compaction on status transitions (entries
   are added to the new status but not removed from the old).
-- `get_by_status()` reads all entries for a status and only returns those
-  whose current `invoice.status` matches (to handle stale index entries).
+- `get_by_status()`, `get_by_issuer()`, and `get_by_buyer()` are paginated
+  (`page`, `page_size`, capped at `MAX_PAGE_SIZE`). Each call reads at most
+  `page_size` index entries, so cost is bounded regardless of index size.
+- `get_by_status()` still filters each page to entries whose current
+  `invoice.status` matches (to handle stale index entries), so a page may
+  contain fewer than `page_size` results.
 
 ### Storage Key Count
 

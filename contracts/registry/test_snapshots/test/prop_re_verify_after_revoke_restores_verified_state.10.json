@@ -36,7 +36,40 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "JCCMLmTcQ"
+                      },
+                      "val": {
+                        "string": "cWbL82"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "fDR4"
+                      },
+                      "val": {
+                        "string": "wA__mgH8W"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "mx_V29N__"
+                      },
+                      "val": {
+                        "string": "T__l128SZIYm_o"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "ydQ27S5e4f"
+                      },
+                      "val": {
+                        "string": "JGFj_h_X_0f2"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -252,7 +285,40 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": []
+                        "map": [
+                          {
+                            "key": {
+                              "string": "JCCMLmTcQ"
+                            },
+                            "val": {
+                              "string": "cWbL82"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "fDR4"
+                            },
+                            "val": {
+                              "string": "wA__mgH8W"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "mx_V29N__"
+                            },
+                            "val": {
+                              "string": "T__l128SZIYm_o"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "ydQ27S5e4f"
+                            },
+                            "val": {
+                              "string": "JGFj_h_X_0f2"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -738,7 +804,40 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "JCCMLmTcQ"
+                      },
+                      "val": {
+                        "string": "cWbL82"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "fDR4"
+                      },
+                      "val": {
+                        "string": "wA__mgH8W"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "mx_V29N__"
+                      },
+                      "val": {
+                        "string": "T__l128SZIYm_o"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "ydQ27S5e4f"
+                      },
+                      "val": {
+                        "string": "JGFj_h_X_0f2"
+                      }
+                    }
+                  ]
                 }
               ]
             }
