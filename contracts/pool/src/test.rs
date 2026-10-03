@@ -15,8 +15,11 @@ use soroban_sdk::{
 };
 
 use crate::{
-    constants::MAX_PROTOCOL_FEE_BPS, DataKey, PoolContract, PoolContractClient,
-    DEFAULT_MIN_INITIAL_DEPOSIT, DEFAULT_SHARE_DECIMALS, TTL_EXTEND_TO, TTL_THRESHOLD,
+    constants::{
+        MAX_PROTOCOL_FEE_BPS, SUGGESTED_DISCOUNT_CEILING_BPS, SUGGESTED_DISCOUNT_FLOOR_BPS,
+    },
+    DataKey, PoolContract, PoolContractClient, DEFAULT_MIN_INITIAL_DEPOSIT, DEFAULT_SHARE_DECIMALS,
+    TTL_EXTEND_TO, TTL_THRESHOLD,
 };
 
 use trusttrove_escrow::{EscrowContract as RealEscrow, EscrowContractClient as RealEscrowClient};
@@ -1333,11 +1336,12 @@ fn test_get_funding_asset_returns_configured_asset() {
 }
 
 // get_usdc_asset delegates to Self::funding_asset(), whose instance read is
-// `.expect()`-guarded ("pool is not initialized: funding asset missing") rather
-// than a typed PoolError. This test documents that untyped panic when the
-// pool has never been initialized (issues #591).
+// guarded by a typed `PoolError::NotInitialized` panic rather than a bare
+// `expect` string. This test pins the typed error when the pool has never been
+// initialized (issue #591 originally documented the untyped panic; issue #441
+// replaced it with the typed variant).
 #[test]
-#[should_panic(expected = "pool is not initialized: funding asset missing")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_get_usdc_asset_panics_when_uninitialized() {
     let env = Env::default();
     let pool_id = env.register_contract(None, PoolContract);
@@ -4057,7 +4061,7 @@ fn test_get_escrow_contract_returns_correct_address() {
 }
 
 #[test]
-#[should_panic(expected = "pool is not initialized: admin missing")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_get_admin_panics_when_uninitialized() {
     let env = Env::default();
     env.mock_all_auths();
@@ -4067,7 +4071,7 @@ fn test_get_admin_panics_when_uninitialized() {
 }
 
 #[test]
-#[should_panic(expected = "pool is not initialized: invoice contract missing")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_get_invoice_contract_panics_when_uninitialized() {
     let env = Env::default();
     env.mock_all_auths();
@@ -4077,13 +4081,79 @@ fn test_get_invoice_contract_panics_when_uninitialized() {
 }
 
 #[test]
-#[should_panic(expected = "pool is not initialized: escrow contract missing")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_get_escrow_contract_panics_when_uninitialized() {
     let env = Env::default();
     env.mock_all_auths();
     let pool_id = env.register_contract(None, PoolContract);
     let pool = PoolContractClient::new(&env, &pool_id);
     let _ = pool.get_escrow_contract();
+}
+
+// ============== ISSUE #441: TYPED NotInitialized ERRORS ==============
+//
+// Every instance-storage read in the pool contract must fail with the typed
+// `PoolError::NotInitialized` (#2) when the contract has not been initialized,
+// never an untyped host panic. These tests cover the remaining entry points
+// and views after the bare `unwrap()` / `expect()` reads were replaced
+// (`get_admin`, `get_invoice_contract`, `get_escrow_contract` and
+// `get_usdc_asset` are pinned alongside; `deposit`, `withdraw` and
+// `fund_invoice` already had typed-error tests).
+
+fn uninitialized_pool() -> (Env, PoolContractClient<'static>) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let pool_id = env.register_contract(None, PoolContract);
+    let pool = PoolContractClient::new(&env, &pool_id);
+    (env, pool)
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_get_fee_bps_panics_with_typed_not_initialized() {
+    let (_env, pool) = uninitialized_pool();
+    pool.get_fee_bps();
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_get_treasury_address_panics_with_typed_not_initialized() {
+    let (_env, pool) = uninitialized_pool();
+    pool.get_treasury_address();
+}
+
+/// `get_treasury` falls back to the stored admin when no dedicated treasury is
+/// configured, so its panic path is the admin read — it must be typed too.
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_get_treasury_panics_with_typed_not_initialized() {
+    let (_env, pool) = uninitialized_pool();
+    pool.get_treasury();
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_receive_repayment_panics_with_typed_not_initialized() {
+    let (env, pool) = uninitialized_pool();
+    let invoice_id = BytesN::from_array(&env, &[0u8; 32]);
+    pool.receive_repayment(&invoice_id, &1_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_receive_repayment_with_refund_panics_with_typed_not_initialized() {
+    let (env, pool) = uninitialized_pool();
+    let invoice_id = BytesN::from_array(&env, &[0u8; 32]);
+    let party = Address::generate(&env);
+    pool.receive_repayment_with_refund(&invoice_id, &1_000, &0, &party);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_handle_default_panics_with_typed_not_initialized() {
+    let (env, pool) = uninitialized_pool();
+    let invoice_id = BytesN::from_array(&env, &[0u8; 32]);
+    pool.handle_default(&invoice_id);
 }
 
 // ============== CONSTANTS LOCATION TESTS (issue #592) ==============
@@ -6070,6 +6140,95 @@ fn prop_utilization_cap_and_funding_accounting_hold_across_op_sequences() {
     );
 }
 
+// ============== ISSUE #719: SUGGESTED DISCOUNT VIEW ==============
+//
+// `get_suggested_discount_bps` interpolates linearly from the floor at 0%
+// utilization to the ceiling at 100%. The ceiling is pinned to 5000 bps so a
+// suggestion can never exceed the cap `invoice::list_for_financing` enforces.
+
+#[test]
+fn test_suggested_discount_curve_constants() {
+    assert_eq!(SUGGESTED_DISCOUNT_FLOOR_BPS, 100);
+    // The ceiling sits exactly at the invoice contract's hard 5000 bps cap so a
+    // suggestion is never rejected by `list_for_financing`.
+    assert_eq!(SUGGESTED_DISCOUNT_CEILING_BPS, 5_000);
+}
+
+/// Low utilization (idle pool, nothing funded) → the floor.
+#[test]
+fn test_get_suggested_discount_bps_at_low_utilization_returns_floor() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+
+    assert_eq!(te.pool.get_utilization_rate(), 0);
+    assert_eq!(
+        te.pool.get_suggested_discount_bps(),
+        SUGGESTED_DISCOUNT_FLOOR_BPS
+    );
+}
+
+/// Mid utilization (exactly 50% of deposits funded) → the curve midpoint.
+#[test]
+fn test_get_suggested_discount_bps_at_mid_utilization_is_midpoint() {
+    let te = setup();
+    // Deposits = 2 × funded_amount, so utilization is exactly 5000 bps.
+    te.pool.deposit(&te.lp, &(DEFAULT_FUNDED_AMOUNT * 2));
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    te.pool.fund_invoice(&invoice_id);
+
+    assert_eq!(te.pool.get_utilization_rate(), 5_000);
+    assert_eq!(
+        te.pool.get_suggested_discount_bps(),
+        SUGGESTED_DISCOUNT_FLOOR_BPS
+            + (SUGGESTED_DISCOUNT_CEILING_BPS - SUGGESTED_DISCOUNT_FLOOR_BPS) / 2
+    );
+}
+
+/// Near-cap utilization (every deposited unit funded) → the ceiling.
+#[test]
+fn test_get_suggested_discount_bps_at_full_utilization_returns_ceiling() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &DEFAULT_FUNDED_AMOUNT);
+    let invoice_id = create_and_list(&te, &te.usdc_id);
+    te.pool.fund_invoice(&invoice_id);
+
+    assert_eq!(te.pool.get_utilization_rate(), 10_000);
+    assert_eq!(
+        te.pool.get_suggested_discount_bps(),
+        SUGGESTED_DISCOUNT_CEILING_BPS
+    );
+}
+
+/// The view is read-only and authless: it must succeed with no mocked auths
+/// and leave every accounting field untouched.
+#[test]
+fn test_get_suggested_discount_bps_is_read_only_and_authless() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &100_000_000_000);
+    let before = te.pool.get_stats();
+
+    // Clear all mocked auths: a read-only view must not need authorization.
+    te.env.set_auths(&[]);
+    let suggestion = te.pool.get_suggested_discount_bps();
+    assert_eq!(suggestion, SUGGESTED_DISCOUNT_FLOOR_BPS);
+
+    let after = te.pool.get_stats();
+    assert_eq!(after.total_deposits, before.total_deposits);
+    assert_eq!(after.total_funded, before.total_funded);
+    assert_eq!(after.total_shares, before.total_shares);
+    assert_eq!(after.active_invoice_count, before.active_invoice_count);
+}
+
+/// An uninitialized pool has no deposits, so utilization reads 0% and the view
+/// returns the floor instead of panicking.
+#[test]
+fn test_get_suggested_discount_bps_uninitialized_pool_returns_floor() {
+    let (_env, pool) = uninitialized_pool();
+    assert_eq!(
+        pool.get_suggested_discount_bps(),
+        SUGGESTED_DISCOUNT_FLOOR_BPS
+    );
+}
 // ============== ISSUE #440: TRANSFER OWNERSHIP ==============
 
 #[test]

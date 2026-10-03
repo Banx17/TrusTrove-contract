@@ -444,7 +444,9 @@ If you want to contribute to governance design, open an issue tagged `complexity
 
 The `pool` and `invoice` contracts expose admin-gated `pause() / unpause()` entry points backed by the shared [`trusttrove-pause`](contracts/pause) crate. While paused, every state-changing call reverts with `ContractPaused` while read-only views remain live.
 
-**Roadmap:** Wire the same circuit breaker into the remaining contracts (`registry`, `escrow`), and back the admin key with a multi-sig.
+The `pool`, `invoice`, and `registry` contracts expose admin-gated `pause() / unpause()` entry points backed by the shared [`trusttrove-pause`](contracts/pause) crate (issues #713, #714, #715). While paused, every state-changing call reverts with `ContractPaused` while read-only views remain live.
+
+**Roadmap:** Wire the same circuit breaker into the remaining contract (`escrow`), and back the admin key with a multi-sig.
 
 ---
 

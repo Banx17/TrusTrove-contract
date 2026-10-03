@@ -216,7 +216,8 @@ are provided where available.
 
 - Emergency pause mechanism for the remaining contracts (`registry`, `escrow`) — `pool` and `invoice` ship admin-gated `pause() / unpause()` via the shared `trusttrove-pause` crate
 - Multi-sig admin (3-of-5 Stellar signers)
-- LP-governed invoice funding (stake LP tokens to vote on invoices)
+- LP-governed invoice funding (stake LP tokens to vote on invoices). Design
+  proposal: [NEW\_DESIGN.md](NEW_DESIGN.md) (issue #718)
 - Dynamic utilization-based interest rate model
 - Batch invoice creation
 - Swap-free multi-asset pools (USDC + XLM)
