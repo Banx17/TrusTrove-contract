@@ -5,6 +5,7 @@ use soroban_sdk::{
     xdr::{FromXdr, ToXdr},
     Address, Bytes, BytesN, Env, IntoVal, Map, String, Symbol, Vec,
 };
+use trusttrove_pause::{require_not_paused, set_paused};
 
 mod constants;
 mod errors;
@@ -85,6 +86,7 @@ impl InvoiceContract {
     /// client.initialize(&admin, &registry_address);
     /// ```
     pub fn initialize(env: Env, admin: Address, registry_contract: Address) {
+        require_not_paused(&env);
         if env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(&env, InvoiceError::AlreadyInitialized);
         }
@@ -165,6 +167,7 @@ impl InvoiceContract {
     /// client.set_pool_contract(&pool_address);
     /// ```
     pub fn set_pool_contract(env: Env, pool_contract: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -251,6 +254,7 @@ impl InvoiceContract {
     /// client.set_agent_registry_contract(&agent_registry_address);
     /// ```
     pub fn set_agent_registry_contract(env: Env, agent_registry_contract: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -336,6 +340,7 @@ impl InvoiceContract {
     /// # Returns
     /// * `()` - No value is returned.
     pub fn set_escrow_contract(env: Env, escrow_contract: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -462,6 +467,7 @@ impl InvoiceContract {
     /// client.add_supported_asset(&usdc);
     /// ```
     pub fn add_supported_asset(env: Env, asset: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -511,6 +517,7 @@ impl InvoiceContract {
     /// client.remove_supported_asset(&usdc);
     /// ```
     pub fn remove_supported_asset(env: Env, asset: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -631,6 +638,7 @@ impl InvoiceContract {
         due_date: u64,
         funding_asset: Address,
     ) -> BytesN<32> {
+        require_not_paused(&env);
         issuer.require_auth();
 
         if issuer == buyer {
@@ -794,6 +802,7 @@ impl InvoiceContract {
     /// client.list_for_financing(&invoice_id, 250);
     /// ```
     pub fn list_for_financing(env: Env, invoice_id: BytesN<32>, discount_bps: u32) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -899,6 +908,7 @@ impl InvoiceContract {
         payload: Bytes,
         signature: BytesN<65>,
     ) {
+        require_not_paused(&env);
         // NO require_auth on the caller — submission is permissionless by
         // design. Security comes entirely from the signature check below,
         // not from who calls this.
@@ -999,6 +1009,7 @@ impl InvoiceContract {
         asset_address: Address,
         funded_amount: u128,
     ) -> bool {
+        require_not_paused(&env);
         let configured_pool: Address = env
             .storage()
             .instance()
@@ -1078,6 +1089,7 @@ impl InvoiceContract {
     /// client.mark_shipped(&invoice_id);
     /// ```
     pub fn mark_shipped(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1135,6 +1147,7 @@ impl InvoiceContract {
     /// client.confirm_delivery(&invoice_id, &buyer);
     /// ```
     pub fn confirm_delivery(env: Env, invoice_id: BytesN<32>, confirmer: Address) -> bool {
+        require_not_paused(&env);
         confirmer.require_auth();
 
         let inv_key = DataKey::Invoice(invoice_id.clone());
@@ -1219,6 +1232,7 @@ impl InvoiceContract {
     /// to the pool, the pool's repayment accounting is updated, the invoice transitions
     /// to `Repaid`, and `invoice_repaid` is emitted.
     pub fn repay_partial(env: Env, invoice_id: BytesN<32>, amount: u128) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
             .storage()
@@ -1340,6 +1354,7 @@ impl InvoiceContract {
     }
 
     pub fn repay(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
             .storage()
@@ -1384,6 +1399,7 @@ impl InvoiceContract {
     /// client.repay_early(&invoice_id);
     /// ```
     pub fn repay_early(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
             .storage()
@@ -1539,6 +1555,7 @@ impl InvoiceContract {
     /// for a pinned repro.
     ///
     pub fn trigger_default(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1616,6 +1633,7 @@ impl InvoiceContract {
     /// client.mark_defaulted(&invoice_id);
     /// ```
     pub fn mark_defaulted(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
             .storage()
@@ -1654,6 +1672,7 @@ impl InvoiceContract {
     }
 
     pub fn set_expiry_window(env: Env, window: u64) {
+        require_not_paused(&env);
         if window > 31_536_000u64 {
             panic_with_error!(&env, InvoiceError::InvalidExpiryWindow);
         }
@@ -1729,6 +1748,7 @@ impl InvoiceContract {
     /// client.expire_listing(&invoice_id, &issuer);
     /// ```
     pub fn expire_listing(env: Env, invoice_id: BytesN<32>, caller: Address) -> bool {
+        require_not_paused(&env);
         caller.require_auth();
 
         let inv_key = DataKey::Invoice(invoice_id.clone());
@@ -2256,7 +2276,23 @@ impl InvoiceContract {
         Self::get_invoice(&env, invoice_id).due_date
     }
 
+    /// Transfers invoice-contract admin ownership to `new_admin`.
+    ///
+    /// Uses the same dual-authorization pattern as `RegistryContract` and
+    /// `PoolContract`: both the current admin and `new_admin` must sign, so
+    /// ownership cannot be handed to an address that has not consented and a
+    /// compromised admin cannot unilaterally install a key it controls.
+    /// Emits `ownership_transferred`.
+    ///
+    /// # Auth
+    /// Requires authorization from both the current admin and `new_admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the contract has not been initialized.
+    /// * `ContractPaused` (via `trusttrove_pause::require_not_paused`) while
+    ///   the circuit breaker is engaged.
     pub fn transfer_ownership(env: Env, new_admin: Address) {
+        require_not_paused(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -2266,6 +2302,63 @@ impl InvoiceContract {
         new_admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         events::ownership_transferred(&env, &admin, &new_admin);
+        Self::extend_instance_ttl(&env);
+    }
+
+    /// Engages the emergency circuit breaker.
+    ///
+    /// While paused every state-changing entry point reverts with
+    /// `ContractPaused`, while read-only views (`get`, `get_status`,
+    /// `get_counts`, ...) stay callable. Only the stored admin may pause, and
+    /// [`Self::unpause`] is intentionally never guarded so a paused contract
+    /// can always be resumed. Emits `paused`.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored `admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the contract has not been initialized.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.pause();
+    /// ```
+    pub fn pause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
+        admin.require_auth();
+        set_paused(&env, true);
+        events::paused(&env, &admin);
+        Self::extend_instance_ttl(&env);
+    }
+
+    /// Disengages the emergency circuit breaker, restoring state-changing calls.
+    ///
+    /// Deliberately *not* guarded by `require_not_paused`: otherwise a paused
+    /// contract could never be resumed. Emits `unpaused`.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored `admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the contract has not been initialized.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.unpause();
+    /// ```
+    pub fn unpause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
+        admin.require_auth();
+        set_paused(&env, false);
+        events::unpaused(&env, &admin);
         Self::extend_instance_ttl(&env);
     }
 

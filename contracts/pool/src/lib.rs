@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, BytesN, Env, IntoVal, String, Symbol,
     Vec,
 };
+use trusttrove_pause::{require_not_paused, set_paused};
 
 mod constants;
 mod errors;
@@ -117,6 +118,7 @@ impl PoolContract {
         share_symbol: String,
         share_decimals: u32,
     ) {
+        require_not_paused(&env);
         if Self::admin(&env).is_some() {
             panic_with_error!(&env, PoolError::AlreadyInitialized);
         }
@@ -353,6 +355,93 @@ impl PoolContract {
         Self::admin(&env).expect("pool is not initialized: admin missing")
     }
 
+    /// Transfers pool admin ownership to `new_admin`.
+    ///
+    /// Uses the dual-authorization pattern shared with `RegistryContract` and
+    /// `InvoiceContract`: both the current admin and the incoming `new_admin`
+    /// must sign. This stops ownership from being handed to an address that has
+    /// not consented (e.g. a mistyped address) and stops a compromised current
+    /// admin from unilaterally installing a key it controls. Emits
+    /// `ownership_transferred`.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `new_admin` - The address that will become the pool admin.
+    ///
+    /// # Auth
+    /// Requires authorization from both the current admin and `new_admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool has not been initialized.
+    /// * `ContractPaused` (via `trusttrove_pause::require_not_paused`) if the
+    ///   pool is paused.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.transfer_ownership(&new_admin);
+    /// ```
+    pub fn transfer_ownership(env: Env, new_admin: Address) {
+        require_not_paused(&env);
+        let admin =
+            Self::admin(&env).unwrap_or_else(|| panic_with_error!(&env, PoolError::NotInitialized));
+        admin.require_auth();
+        new_admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        events::ownership_transferred(&env, &admin, &new_admin);
+        Self::extend_instance_ttl(&env);
+    }
+
+    /// Engages the emergency circuit breaker.
+    ///
+    /// While paused every state-changing entry point reverts with
+    /// `ContractPaused`, while read-only views (`get_stats`, `balance`,
+    /// `get_lp_position`, ...) stay callable. Only the stored admin may pause,
+    /// and [`Self::unpause`] is intentionally never guarded so a paused pool can
+    /// always be resumed. Emits `paused`.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored `admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool has not been initialized.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.pause();
+    /// ```
+    pub fn pause(env: Env) {
+        let admin =
+            Self::admin(&env).unwrap_or_else(|| panic_with_error!(&env, PoolError::NotInitialized));
+        admin.require_auth();
+        set_paused(&env, true);
+        events::paused(&env, &admin);
+        Self::extend_instance_ttl(&env);
+    }
+
+    /// Disengages the emergency circuit breaker, restoring state-changing calls.
+    ///
+    /// Deliberately *not* guarded by `require_not_paused`: otherwise a paused
+    /// pool could never be resumed. Emits `unpaused`.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored `admin`.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool has not been initialized.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.unpause();
+    /// ```
+    pub fn unpause(env: Env) {
+        let admin =
+            Self::admin(&env).unwrap_or_else(|| panic_with_error!(&env, PoolError::NotInitialized));
+        admin.require_auth();
+        set_paused(&env, false);
+        events::unpaused(&env, &admin);
+        Self::extend_instance_ttl(&env);
+    }
+
     /// Returns the protocol fee in basis points.
     ///
     /// # Arguments
@@ -466,6 +555,7 @@ impl PoolContract {
     /// let shares = client.deposit(&lp, 10_000_000);
     /// ```
     pub fn deposit(env: Env, lp: Address, usdc_amount: u128) -> u128 {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         lp.require_auth();
         if usdc_amount == 0 {
@@ -574,6 +664,7 @@ impl PoolContract {
     /// let returned = client.withdraw(&lp, 500);
     /// ```
     pub fn withdraw(env: Env, lp: Address, shares: u128) -> u128 {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         lp.require_auth();
         if shares == 0 {
@@ -695,6 +786,7 @@ impl PoolContract {
     /// shares_token.transfer(&lp, &recipient, &5_000_000_000);
     /// ```
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         from.require_auth();
         if amount <= 0 {
@@ -757,6 +849,7 @@ impl PoolContract {
     /// Note: This function accepts i128 to allow for negative amounts in internal accounting,
     /// but negative amounts are rejected as invalid for standard transfers.
     pub fn transfer_shares(env: Env, from: Address, to: Address, amount: i128) {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         from.require_auth();
         if amount <= 0 {
@@ -807,6 +900,7 @@ impl PoolContract {
         amount: i128,
         expiration_ledger: u32,
     ) {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         from.require_auth();
         if amount < 0 {
@@ -897,6 +991,7 @@ impl PoolContract {
     /// // allowance(lp, staking) is now 0
     /// ```
     pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         spender.require_auth();
         if amount <= 0 {
@@ -1043,6 +1138,7 @@ impl PoolContract {
     /// client.fund_invoice(&invoice_id);
     /// ```
     pub fn fund_invoice(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         Self::require_initialized(&env);
         let invoice_contract = Self::invoice_contract(&env)
             .expect("pool is not initialized: invoice contract missing");
@@ -1201,6 +1297,7 @@ impl PoolContract {
     /// client.receive_repayment(&invoice_id, 1_050);
     /// ```
     pub fn receive_repayment(env: Env, invoice_id: BytesN<32>, amount: u128) -> bool {
+        require_not_paused(&env);
         let invoice_contract = Self::invoice_contract(&env)
             .expect("pool is not initialized: invoice contract missing");
         invoice_contract.require_auth();
@@ -1261,6 +1358,7 @@ impl PoolContract {
         refund: u128,
         buyer: Address,
     ) -> bool {
+        require_not_paused(&env);
         let invoice_contract = Self::invoice_contract(&env)
             .expect("pool is not initialized: invoice contract missing");
         invoice_contract.require_auth();
@@ -1292,9 +1390,11 @@ impl PoolContract {
     /// 2. Calls `invoice.mark_defaulted()` to persist the `Defaulted` status
     ///    on the invoice record, update the status index, and emit the
     ///    `invoice_defaulted` event.
-    /// 3. Updates the pool's local accounting (TotalFunded, TotalDeposits,
-    ///    TotalLossRealised, ActiveInvoiceCount) and removes the funded
-    ///    invoice entry.
+    /// 3. Updates the pool's local accounting and removes the funded invoice
+    ///    entry. Only `TotalFunded`, `TotalLossRealised`, and
+    ///    `ActiveInvoiceCount` change: `TotalDeposits` is intentionally left
+    ///    untouched because escrow returns the principal to the pool, so LP
+    ///    capital is preserved (issue #439).
     ///
     /// # Arguments
     /// * `env` - The Soroban environment.
@@ -1324,6 +1424,7 @@ impl PoolContract {
     /// client.handle_default(&invoice_id);
     /// ```
     pub fn handle_default(env: Env, invoice_id: BytesN<32>) -> bool {
+        require_not_paused(&env);
         let invoice_contract = Self::invoice_contract(&env)
             .expect("pool is not initialized: invoice contract missing");
         invoice_contract.require_auth();
@@ -1346,23 +1447,25 @@ impl PoolContract {
             panic_with_error!(&env, PoolError::EscrowDefaultNotReleased);
         }
 
+        // Escrow returns the full locked principal to the pool on default (see
+        // `EscrowContract::handle_default`), so LP capital is not lost here:
+        // only `TotalFunded` — capital currently out on funded invoices — is
+        // decremented. `TotalDeposits` is intentionally left unchanged so
+        // `available_liquidity = TotalDeposits - TotalFunded` rises by exactly
+        // the recovered amount and LP share value is preserved. Previously this
+        // also subtracted `funded_amount` from `TotalDeposits`, which
+        // double-counted the loss and artificially deflated share value. Refs:
+        // issue #439.
         let totals = Self::totals(&env);
         let total_funded = totals.funded;
-        let total_deposits = totals.deposits;
         let total_loss_realised = totals.loss_realised;
 
         let new_total_funded = total_funded
             .checked_sub(funded_amount)
             .unwrap_or_else(|| panic_with_error!(&env, PoolError::Overflow));
-        let new_total_deposits = total_deposits
-            .checked_sub(funded_amount)
-            .unwrap_or_else(|| panic_with_error!(&env, PoolError::Overflow));
         env.storage()
             .instance()
             .set(&DataKey::TotalFunded, &new_total_funded);
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalDeposits, &new_total_deposits);
         env.storage().instance().set(
             &DataKey::TotalLossRealised,
             &(total_loss_realised + funded_amount),
@@ -1626,6 +1729,7 @@ impl PoolContract {
     /// client.set_max_utilization(&admin, &9000);
     /// ```
     pub fn set_max_utilization(env: Env, admin: Address, new_cap_bps: u32) -> bool {
+        require_not_paused(&env);
         admin.require_auth();
         if new_cap_bps > 10000 {
             panic_with_error!(&env, PoolError::InvalidAmount);
@@ -1661,6 +1765,7 @@ impl PoolContract {
     /// # Returns
     /// * `bool` - `true` when the fee is updated.
     pub fn set_protocol_fee(env: Env, fee_bps: u32, treasury: Address) -> bool {
+        require_not_paused(&env);
         let admin =
             Self::admin(&env).unwrap_or_else(|| panic_with_error!(&env, PoolError::NotInitialized));
         admin.require_auth();
