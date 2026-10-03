@@ -2672,6 +2672,30 @@ fn test_full_withdraw_then_deposit_yield_accounting() {
 }
 
 #[test]
+fn test_multi_deposit_average_basis_differs_from_fifo_yield() {
+    let te = setup();
+    let first_deposit = 10_000_000_000u128;
+
+    // A 2% pool return raises the share price before this LP's second deposit.
+    te.pool.deposit(&te.lp, &first_deposit);
+    fund_and_repay_invoice(&te);
+    let second_shares = te.pool.deposit(&te.lp, &first_deposit);
+    assert_eq!(second_shares, 9_803_921_568);
+
+    // Withdrawing half of the original lot would return 5.1B stroops. FIFO
+    // assigns 5B stroops of principal and 100M of yield to that withdrawal.
+    let shares_withdrawn = first_deposit / 2;
+    let returned = te.pool.withdraw(&te.lp, &shares_withdrawn);
+    assert_eq!(returned, 5_100_000_000);
+
+    // The aggregate-basis model instead allocates about 5.0495B principal,
+    // understating this withdrawal's FIFO yield by about 49.5M stroops.
+    let position = te.pool.get_lp_position(&te.lp);
+    assert_eq!(position.yield_earned, 50_495_050);
+    assert_eq!(100_000_000 - position.yield_earned, 49_504_950);
+}
+
+#[test]
 fn test_multi_lp_proportional_yield_with_mid_cycle_deposit() {
     let te = setup();
 

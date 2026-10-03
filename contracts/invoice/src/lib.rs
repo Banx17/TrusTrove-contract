@@ -772,8 +772,6 @@ impl InvoiceContract {
     ///   has since been revoked.
     /// * `InvoiceError::BuyerNotVerified` if the buyer's registry verification
     ///   has since been revoked.
-    /// * `InvoiceError::InvalidDiscount` if `discount_bps` is zero (a 0% discount is
-    ///   nonsensical — the pool would fund at face value with zero yield).
     /// * `InvoiceError::DiscountTooHigh` if `discount_bps` is greater than 5000.
     ///
     /// # Returns
@@ -819,9 +817,6 @@ impl InvoiceContract {
             &invoice.buyer,
             InvoiceError::BuyerNotVerified,
         );
-        if discount_bps == 0 {
-            panic_with_error!(&env, InvoiceError::InvalidDiscount);
-        }
         if discount_bps > 5000 {
             panic_with_error!(&env, InvoiceError::DiscountTooHigh);
         }
