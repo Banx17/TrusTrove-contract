@@ -36,24 +36,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "_"
-                      },
-                      "val": {
-                        "string": "_"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "_F"
-                      },
-                      "val": {
-                        "string": "BLR__Z7X"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }
@@ -117,24 +100,7 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "_"
-                            },
-                            "val": {
-                              "string": "_"
-                            }
-                          },
-                          {
-                            "key": {
-                              "string": "_F"
-                            },
-                            "val": {
-                              "string": "BLR__Z7X"
-                            }
-                          }
-                        ]
+                        "map": []
                       }
                     },
                     {
@@ -389,24 +355,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "_"
-                      },
-                      "val": {
-                        "string": "_"
-                      }
-                    },
-                    {
-                      "key": {
-                        "string": "_F"
-                      },
-                      "val": {
-                        "string": "BLR__Z7X"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }

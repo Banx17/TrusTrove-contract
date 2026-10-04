@@ -36,16 +36,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "RJ5w5B"
-                      },
-                      "val": {
-                        "string": "_fK_BH301iL6Z"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }
@@ -109,16 +100,7 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "string": "RJ5w5B"
-                            },
-                            "val": {
-                              "string": "_fK_BH301iL6Z"
-                            }
-                          }
-                        ]
+                        "map": []
                       }
                     },
                     {
@@ -373,16 +355,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": [
-                    {
-                      "key": {
-                        "string": "RJ5w5B"
-                      },
-                      "val": {
-                        "string": "_fK_BH301iL6Z"
-                      }
-                    }
-                  ]
+                  "map": []
                 }
               ]
             }
