@@ -2,6 +2,7 @@
 
 use proptest::prelude::*;
 use proptest::test_runner::{Config as ProptestConfig, TestRunner};
+use soroban_sdk::vec;
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{storage::Persistent as _, Address as _, Events as _, Ledger},
@@ -9,7 +10,6 @@ use soroban_sdk::{
     xdr::ToXdr,
     Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, Vec,
 };
-use soroban_sdk::vec;
 
 use crate::{
     InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MAX_BATCH_SIZE,
@@ -4828,4 +4828,3 @@ fn test_batch_list_for_financing_allows_exactly_max_batch_size() {
     assert!(failed.is_empty());
     assert_eq!(client.get_invoice_count_by_issuer(&issuer), MAX_BATCH_SIZE);
 }
-
