@@ -1,6 +1,6 @@
 # Limitations
 
-> **Updated:** 2026-10-03
+> **Updated:** 2026-09-30
 > **Applies to:** TrusTrove protocol on Stellar testnet
 
 This document captures known limitations, testnet-specific constraints,
@@ -62,35 +62,35 @@ Soroban charges fees based on a budget model: each operation consumes
 CPU instructions, memory, and ledger I/O. The following are approximate
 relative costs based on code analysis.
 
-| Operation | Cross-Contract Calls | Token Transfers | CPU Instructions | Memory (Bytes) | Relative Budget |
-|-----------|---------------------|-----------------|------------------|----------------|-----------------|
-| `registry::register_issuer` | 0 | 0 | — | — | Very Low |
-| `registry::revoke` | 0 | 0 | — | — | Very Low |
-| `invoice::create` | 2 (`is_verified` ×2) | 0 | — | — | Low |
-| `invoice::batch_create` | 2 per entry (`is_verified` ×2) | 0 | — | — | Low per entry, **up to 50× `create`** |
-| `invoice::list_for_financing` | 0 | 0 | — | — | Low |
-| `invoice::batch_list_for_financing` | 0 | 0 | — | — | Low per entry, **up to 50× `list_for_financing`** |
-| `invoice::mark_funded` | 0 | 0 | — | — | Low |
-| `invoice::repay` | 1 (`receive_repayment`) | 1 (buyer → pool) | — | — | Medium |
-| `invoice::trigger_default` | 1 (`handle_default`) | 0 | — | — | Medium |
-| `pool::deposit` (before refactor) | 0 | 1 (LP → pool) | ~456,800 | ~73,400 | Low-Medium |
-| `pool::deposit` (after `mint()`) | 0 | 1 (LP → pool) | 457,992 | 73,495 | Low-Medium |
-| `pool::withdraw` (before refactor) | 0 | 1 (pool → LP) | ~450,500 | ~63,550 | Medium |
-| `pool::withdraw` (after `burn()`) | 0 | 1 (pool → LP) | 451,634 | 63,660 | Medium |
-| `pool::fund_invoice` | 6 (`get_status`, `get_funding_asset`, `get_face_value`, `get_discount_bps`, `lock`, `mark_funded`) | 1 (pool → escrow) | — | — | **High** |
-| `pool::batch_fund_invoice` | 6 per entry | 1 per entry | — | — | **High** per entry, **up to 50× `fund_invoice`** |
-| `pool::receive_repayment` | 0 | 0 | — | — | Low |
-| `pool::handle_default` | 1 (`escrow::handle_default`) | 1 (escrow → pool) | — | — | Medium |
-| `pool_factory::register_existing_pool` | 0 | 0 | 69,486 | 7,604 | Low |
-| `escrow::lock` | 0 | 1 (pool → escrow) | — | — | Medium |
-| `escrow::release_to_issuer` | 0 | 1 (escrow → issuer) | — | — | Medium |
-| `escrow::release_to_pool` | 0 | 1 (escrow → pool, partial allowed) | — | — | Medium |
-| `escrow::handle_default` | 0 | 1 (escrow → pool) | — | — | Medium |
+| Operation                              | Cross-Contract Calls                                                                               | Token Transfers                    | CPU Instructions | Memory (Bytes) | Relative Budget                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------- | -------------- | ------------------------------------------------- |
+| `registry::register_issuer`            | 0                                                                                                  | 0                                  | —                | —              | Very Low                                          |
+| `registry::revoke`                     | 0                                                                                                  | 0                                  | —                | —              | Very Low                                          |
+| `invoice::create`                      | 2 (`is_verified` ×2)                                                                               | 0                                  | —                | —              | Low                                               |
+| `invoice::batch_create`                | 2 per entry (`is_verified` ×2)                                                                     | 0                                  | —                | —              | Low per entry, **up to 50× `create`**             |
+| `invoice::list_for_financing`          | 0                                                                                                  | 0                                  | —                | —              | Low                                               |
+| `invoice::batch_list_for_financing`    | 0                                                                                                  | 0                                  | —                | —              | Low per entry, **up to 50× `list_for_financing`** |
+| `invoice::mark_funded`                 | 0                                                                                                  | 0                                  | —                | —              | Low                                               |
+| `invoice::repay`                       | 1 (`receive_repayment`)                                                                            | 1 (buyer → pool)                   | —                | —              | Medium                                            |
+| `invoice::trigger_default`             | 1 (`handle_default`)                                                                               | 0                                  | —                | —              | Medium                                            |
+| `pool::deposit` (before refactor)      | 0                                                                                                  | 1 (LP → pool)                      | ~456,800         | ~73,400        | Low-Medium                                        |
+| `pool::deposit` (after `mint()`)       | 0                                                                                                  | 1 (LP → pool)                      | 457,992          | 73,495         | Low-Medium                                        |
+| `pool::withdraw` (before refactor)     | 0                                                                                                  | 1 (pool → LP)                      | ~450,500         | ~63,550        | Medium                                            |
+| `pool::withdraw` (after `burn()`)      | 0                                                                                                  | 1 (pool → LP)                      | 451,634          | 63,660         | Medium                                            |
+| `pool::fund_invoice`                   | 6 (`get_status`, `get_funding_asset`, `get_face_value`, `get_discount_bps`, `lock`, `mark_funded`) | 1 (pool → escrow)                  | —                | —              | **High**                                          |
+| `pool::batch_fund_invoice`             | 6 per entry                                                                                        | 1 per entry                        | —                | —              | **High** per entry, **up to 50× `fund_invoice`**  |
+| `pool::receive_repayment`              | 0                                                                                                  | 0                                  | —                | —              | Low                                               |
+| `pool::handle_default`                 | 1 (`escrow::handle_default`)                                                                       | 1 (escrow → pool)                  | —                | —              | Medium                                            |
+| `pool_factory::register_existing_pool` | 0                                                                                                  | 0                                  | 69,486           | 7,604          | Low                                               |
+| `escrow::lock`                         | 0                                                                                                  | 1 (pool → escrow)                  | —                | —              | Medium                                            |
+| `escrow::release_to_issuer`            | 0                                                                                                  | 1 (escrow → issuer)                | —                | —              | Medium                                            |
+| `escrow::release_to_pool`              | 0                                                                                                  | 1 (escrow → pool, partial allowed) | —                | —              | Medium                                            |
+| `escrow::handle_default`               | 0                                                                                                  | 1 (escrow → pool)                  | —                | —              | Medium                                            |
 
 Every mutating entry point above also reads the shared pause flag
 (`trusttrove-pause`), adding one instance-storage read per call. That read is
 instance-local and costs the same in every contract; it is also what pushed a few
-long-running integration tests past the default *test-host* budget, which is why
+long-running integration tests past the default _test-host_ budget, which is why
 `pool_factory`'s test `setup()` lifts that budget — see
 [Batch Operations](#batch-operations).
 
@@ -98,12 +98,12 @@ long-running integration tests past the default *test-host* budget, which is why
 
 In preparation for SEP-41 token interface compliance, `deposit()` and `withdraw()`'s internal LP share storage updates were refactored from inline writes into shared internal `mint()` and `burn()` helpers. Resource measurements were taken via Soroban SDK test environment budget tracking (`env.budget()` in `test_gas_benchmark_deposit_and_withdraw` in `contracts/pool/src/test.rs`):
 
-| Operation | Implementation | CPU Instructions | Memory (Bytes) | Delta (CPU) | Delta (Memory) |
-|-----------|----------------|------------------|----------------|-------------|----------------|
-| `deposit()` | Inline `DataKey::LPShares` writes (pre-refactor) | 456,800 | 73,400 | Baseline | Baseline |
-| `deposit()` | Routed via `Self::mint()` (post-refactor) | 457,992 | 73,495 | +1,192 (+0.26%) | +95 (+0.13%) |
-| `withdraw()` | Inline `DataKey::LPShares` writes (pre-refactor) | 450,500 | 63,550 | Baseline | Baseline |
-| `withdraw()` | Routed via `Self::burn()` (post-refactor) | 451,634 | 63,660 | +1,134 (+0.25%) | +110 (+0.17%) |
+| Operation    | Implementation                                   | CPU Instructions | Memory (Bytes) | Delta (CPU)     | Delta (Memory) |
+| ------------ | ------------------------------------------------ | ---------------- | -------------- | --------------- | -------------- |
+| `deposit()`  | Inline `DataKey::LPShares` writes (pre-refactor) | 456,800          | 73,400         | Baseline        | Baseline       |
+| `deposit()`  | Routed via `Self::mint()` (post-refactor)        | 457,992          | 73,495         | +1,192 (+0.26%) | +95 (+0.13%)   |
+| `withdraw()` | Inline `DataKey::LPShares` writes (pre-refactor) | 450,500          | 63,550         | Baseline        | Baseline       |
+| `withdraw()` | Routed via `Self::burn()` (post-refactor)        | 451,634          | 63,660         | +1,134 (+0.25%) | +110 (+0.17%)  |
 
 The benchmark demonstrates negligible gas overhead (~0.25% CPU instruction delta from standard helper call frames) with zero regression to ledger write patterns or storage footprint.
 
@@ -122,10 +122,15 @@ The benchmark demonstrates negligible gas overhead (~0.25% CPU instruction delta
   empty result is returned. The status index is append-only, so a page can
   return fewer than `page_size` invoices when it contains stale entries whose
   invoice has since moved to another status.
-- `get_invoice_count_by_issuer` and `get_invoice_count_by_buyer` avoid that
-  cost entirely: they read a single stored counter (`u32`) in O(1), so
-  pagination and badge UIs should prefer them over `.len()` on the
-  full-fetch views.
+  However, both reads and writes still scale linearly with the total index size:
+  the `extend_issuer_index`, `extend_buyer_index`, and `extend_status_index`
+  helpers scan the whole index to deduplicate before appending, and `move_status_index`
+  scans the target status index. Stale entries remaining in old status indexes after
+  a transition are skipped only by loading and checking the full invoice —
+  there is no O(1) membership marker (`DataKey::StatusMembership` does not
+  exist in `contracts/invoice/src/lib.rs`). Both reads and writes are
+  therefore O(n) in the size of the index; this is tracked for optimization
+  in [#831](https://github.com/TrusTrove/TrusTrove-contract/issues/831).
 
 ### Batch Operations
 
@@ -140,13 +145,13 @@ error should split the work across several transactions.
 The three batch entry points deliberately differ in failure semantics, because
 their failure modes differ:
 
-| Entry point | On a bad entry | Why |
-|---|---|---|
-| `batch_create` | Reverts the whole batch | Creation consumes the shared `Counter`; a partial success would burn counter values and persist a prefix the caller cannot identify without re-reading every invoice |
-| `batch_list_for_financing` | Skips the entry, returns its ID | The interesting failures are per-invoice state an issuer listing a backlog cannot avoid (already listed, missing attestation, revoked verification) |
-| `batch_fund_invoice` | Stops the batch, returns funded IDs | A liquidity/utilization stop is a normal outcome when an LP fills the pool; partial funding would drain the pool in a way no single `fund_invoice` could |
+| Entry point                | On a bad entry                      | Why                                                                                                                                                                  |
+| -------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `batch_create`             | Reverts the whole batch             | Creation consumes the shared `Counter`; a partial success would burn counter values and persist a prefix the caller cannot identify without re-reading every invoice |
+| `batch_list_for_financing` | Skips the entry, returns its ID     | The interesting failures are per-invoice state an issuer listing a backlog cannot avoid (already listed, missing attestation, revoked verification)                  |
+| `batch_fund_invoice`       | Stops the batch, returns funded IDs | A liquidity/utilization stop is a normal outcome when an LP fills the pool; partial funding would drain the pool in a way no single `fund_invoice` could             |
 
-`batch_fund_invoice` still reverts on *eligibility* errors (not listed, already
+`batch_fund_invoice` still reverts on _eligibility_ errors (not listed, already
 funded by this pool, unverified issuer/buyer, asset mismatch), because those are
 caller mistakes that should be fixed rather than silently skipped. Callers
 reconcile the returned funded IDs against their input to see which entries a
@@ -220,20 +225,20 @@ terms.
 
 ### What Happens When…
 
-| Scenario | Current Behaviour | Notes |
-|----------|------------------|-------|
-| LP deposits in a pool with 0 shares and 0 deposits | 1:1 share minting | Correct |
-| LP deposits when `total_shares > 0` but `total_deposits = 0` | Division by zero would panic | Cannot happen in practice (shares only minted alongside deposits) |
-| Buyer repays exactly on `due_date` | `invoice.repay` succeeds; `trigger_default` panics with `DueDateNotPassed` | Asymmetric: `repay` has no time gate beyond `status == Confirmed`; `trigger_default` requires `current_time > due_date` (strict) |
-| `confirm_delivery` called after invoice is already confirmed | Panics with `InvalidStatusTransition` because status is `Confirmed` not `Active` | Correct — prevents replay |
-| `withdraw` when pool has funded invoices but no available liquidity | Panics with `InsufficientLiquidity` | Correct — prevents breaking the pool invariant |
-| Admin calls `set_max_utilization` to 0 | All `fund_invoice` calls will fail (utilization ≥ 0% ≥ cap of 0) | This is a denial-of-service vector available to admin |
-| Calling `revoke` on an unregistered address | Panics with `NotFound` | Per spec |
-| Calling `batch_register_issuers` with more than 50 entries | Panics with `BatchSizeExceeded` | Gas protection |
-| A buyer repays *less* than `face_value` | Not possible on the buyer path — `invoice.repay` transfers the full `face_value` from buyer to pool | Partial amounts are only possible through `escrow::release_to_pool` during default / partial-repayment flows; see [Resolved](#resolved) |
-| An issuer creates an invoice with `due_date = current_time + 1` second | Invoice accepted | `create` requires `due_date > env.ledger().timestamp()` (strict); `now + 1` passes, `now` does not |
-| The pool has exactly 0 USDC balance after funding all deposits | `withdraw` succeeds for unfunded amounts, but funded invoices are locked | Escrow holds funded USDC, pool holds only unfunded USDC |
-| `trigger_default` while status is exactly at `due_date` (timestamp) | Panics with `DueDateNotPassed` | The guard is `if current_time <= due_date`, so one full second must elapse past `due_date` before default can fire |
+| Scenario                                                               | Current Behaviour                                                                                   | Notes                                                                                                                                   |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| LP deposits in a pool with 0 shares and 0 deposits                     | 1:1 share minting                                                                                   | Correct                                                                                                                                 |
+| LP deposits when `total_shares > 0` but `total_deposits = 0`           | Division by zero would panic                                                                        | Cannot happen in practice (shares only minted alongside deposits)                                                                       |
+| Buyer repays exactly on `due_date`                                     | `invoice.repay` succeeds; `trigger_default` panics with `DueDateNotPassed`                          | Asymmetric: `repay` has no time gate beyond `status == Confirmed`; `trigger_default` requires `current_time > due_date` (strict)        |
+| `confirm_delivery` called after invoice is already confirmed           | Panics with `InvalidStatusTransition` because status is `Confirmed` not `Active`                    | Correct — prevents replay                                                                                                               |
+| `withdraw` when pool has funded invoices but no available liquidity    | Panics with `InsufficientLiquidity`                                                                 | Correct — prevents breaking the pool invariant                                                                                          |
+| Admin calls `set_max_utilization` to 0                                 | All `fund_invoice` calls will fail (utilization ≥ 0% ≥ cap of 0)                                    | This is a denial-of-service vector available to admin                                                                                   |
+| Calling `revoke` on an unregistered address                            | Panics with `NotFound`                                                                              | Per spec                                                                                                                                |
+| Calling `batch_register_issuers` with more than 50 entries             | Panics with `BatchSizeExceeded`                                                                     | Gas protection                                                                                                                          |
+| A buyer repays _less_ than `face_value`                                | Not possible on the buyer path — `invoice.repay` transfers the full `face_value` from buyer to pool | Partial amounts are only possible through `escrow::release_to_pool` during default / partial-repayment flows; see [Resolved](#resolved) |
+| An issuer creates an invoice with `due_date = current_time + 1` second | Invoice accepted                                                                                    | `create` requires `due_date > env.ledger().timestamp()` (strict); `now + 1` passes, `now` does not                                      |
+| The pool has exactly 0 USDC balance after funding all deposits         | `withdraw` succeeds for unfunded amounts, but funded invoices are locked                            | Escrow holds funded USDC, pool holds only unfunded USDC                                                                                 |
+| `trigger_default` while status is exactly at `due_date` (timestamp)    | Panics with `DueDateNotPassed`                                                                      | The guard is `if current_time <= due_date`, so one full second must elapse past `due_date` before default can fire                      |
 
 ---
 
@@ -251,7 +256,7 @@ are provided where available.
 
 - Multi-sig admin (3-of-5 Stellar signers)
 - LP-governed invoice funding (stake LP tokens to vote on invoices). Design
-  proposal: [NEW\_DESIGN.md](NEW_DESIGN.md) (issue #718)
+  proposal: [NEW_DESIGN.md](NEW_DESIGN.md) (issue #718)
 - Dynamic utilization-based interest rate model
 - Swap-free multi-asset pools (USDC + XLM)
 - On-chain governance for protocol parameters
@@ -280,14 +285,20 @@ are provided where available.
 These limitations were previously listed here but have been fixed since
 the 2025-07-25 revision.
 
-- **Index entries not compacted on status transition.** `move_status_index`
-  now performs an O(1) remove from the old status membership set
-  (`DataKey::StatusMembership`) and an O(1) append to the new status
-  index, so `get_by_status()` filters stale entries via the membership
-  marker at constant cost. Historical `StatusIndexEntry` rows that point
-  to a moved invoice still occupy a slot in the per-status index but
-  are skipped at read time — they are not reclaimed on disk. See
-  PR #121 (*Fix O(n) status index filtering with O(1) membership lookup*).
+> **Correction (issue
+> [#835](https://github.com/TrusTrove/TrusTrove-contract/issues/835)):**
+> An earlier entry here claimed that "Index entries not compacted on status
+> transition" was resolved because `move_status_index` performs O(1)
+> membership checks via `DataKey::StatusMembership` (crediting PR #121).
+> No such storage key exists anywhere in `contracts/invoice/src/lib.rs`.
+> In reality `move_status_index` and the `extend_*_index` helpers linearly
+> scan the index on every transition, index rows are still not compacted,
+> and `get_by_status` skips stale rows only by loading each invoice and
+> comparing its status. The item remains open and the O(n) linear-scan
+> behaviour is tracked in
+> [#831](https://github.com/TrusTrove/TrusTrove-contract/issues/831);
+> this document will be updated again when that lands.
+
 - **Pool does not track individual LP yield accrual.** `pool::withdraw`
   now writes `DataKey::LPYieldEarned(lp)` and `pool::get_lp_position`
   returns the running yield figure per LP. Yield is therefore visible
@@ -313,9 +324,11 @@ the 2025-07-25 revision.
 - [#294 — Testnet limitation docs](https://github.com/TrusTrove/TrusTrove-contract/issues/294)
 - [#307 — General repo documentation](https://github.com/TrusTrove/TrusTrove-contract/issues/307)
 - [#460 — LIMITATIONS.md stale date](https://github.com/TrusTrove/TrusTrove-contract/issues/460) (this PR fixes it)
+- [#831 — Index helpers linearly scan whole indexes](https://github.com/TrusTrove/TrusTrove-contract/issues/831) (open — tracks the linear-scan performance work; update this document when a real index/membership structure lands)
+- [#835 — LIMITATIONS.md documents a `DataKey::StatusMembership` that does not exist](https://github.com/TrusTrove/TrusTrove-contract/issues/835) (this PR fixes it)
 
 Resolved items reference the PRs that closed them:
 
-- Issue #67 — status index O(1) filtering (closed by PR #121)
+- Issue #67 — status index filtering (closed by PR #121; the O(1) membership claim was retracted — see [#835](https://github.com/TrusTrove/TrusTrove-contract/issues/835) and [#831](https://github.com/TrusTrove/TrusTrove-contract/issues/831))
 - Issues #94, #96, #98, #103 — security (closed by PR #124)
 - Partial default repayment (closed by PR #120)
