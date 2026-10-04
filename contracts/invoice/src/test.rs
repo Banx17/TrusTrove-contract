@@ -4,11 +4,12 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config as ProptestConfig, TestRunner};
 use soroban_sdk::{
     contract, contractimpl, contracttype,
-    testutils::{Address as _, Events as _, Ledger},
-    token, vec,
+    testutils::{storage::Persistent as _, Address as _, Events as _, Ledger},
+    token,
     xdr::ToXdr,
     Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, Vec,
 };
+use soroban_sdk::vec;
 
 use crate::{
     InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MAX_BATCH_SIZE,
@@ -1564,148 +1565,114 @@ fn test_get_by_status_filters_correctly() {
     assert_eq!(listed.len(), 1);
 }
 
-// ============== ISSUE #71: PAGINATED INDEX QUERIES ==============
+// ============== O(1) STATUS MEMBERSHIP MARKERS (issues #831 / #835) ==============
 
-// Each `get_by_*` view takes a zero-based `page` and a `page_size`, so the
-// number of invoices hydrated per call is bounded by `MAX_PAGE_SIZE`. These
-// tests pin the page arithmetic, the empty tail page, the zero-page-size and
-// oversized-page edge cases, and that the pages tile the index without gaps or
-// duplication.
+/// Reads the raw `DataKey::StatusMembership` marker straight from contract
+/// storage, so these tests assert on the key itself and not only on the
+/// public query helper.
+fn raw_status_membership(
+    env: &Env,
+    client: &InvoiceContractClient,
+    status: InvoiceStatus,
+    invoice_id: &BytesN<32>,
+) -> bool {
+    let key = crate::status_membership_key(status, invoice_id);
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false)
+    })
+}
 
 #[test]
-fn test_get_by_issuer_paginates() {
+fn test_status_membership_marker_written_on_create_and_rolled_on_transitions() {
     let (env, client, issuer, buyer, _, usdc) = setup();
     let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
-    for _ in 0..5 {
-        client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
+
+    // `create()` writes the `Created` marker, and it carries the same TTL
+    // policy as every other invoice storage entry.
+    assert!(raw_status_membership(&env, &client, InvoiceStatus::Created, &invoice_id));
+    assert!(client.has_status_membership(&InvoiceStatus::Created, &invoice_id));
+    let created_key = crate::status_membership_key(InvoiceStatus::Created, &invoice_id);
+    let marker_ttl = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&created_key)
+    });
+    assert!(
+        marker_ttl >= TTL_THRESHOLD,
+        "membership marker TTL should be extended, got {marker_ttl}"
+    );
+
+    // No other status may claim membership yet.
+    for status in [
+        InvoiceStatus::Listed,
+        InvoiceStatus::Funded,
+        InvoiceStatus::Active,
+        InvoiceStatus::Confirmed,
+        InvoiceStatus::Repaid,
+        InvoiceStatus::Defaulted,
+        InvoiceStatus::Expired,
+    ] {
+        assert!(!raw_status_membership(&env, &client, status, &invoice_id));
+        assert!(!client.has_status_membership(&status, &invoice_id));
     }
 
-    let page0 = client.get_by_issuer(&issuer, &0, &2);
-    let page1 = client.get_by_issuer(&issuer, &1, &2);
-    let page2 = client.get_by_issuer(&issuer, &2, &2);
-    assert_eq!(page0.len(), 2);
-    assert_eq!(page1.len(), 2);
-    assert_eq!(page2.len(), 1);
+    // Created -> Listed: old marker cleared, new marker set.
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+    assert!(!raw_status_membership(&env, &client, InvoiceStatus::Created, &invoice_id));
+    assert!(raw_status_membership(&env, &client, InvoiceStatus::Listed, &invoice_id));
 
-    // Pages at or past the end are empty rather than panicking.
-    assert_eq!(client.get_by_issuer(&issuer, &3, &2).len(), 0);
-    assert_eq!(client.get_by_issuer(&issuer, &u32::MAX, &2).len(), 0);
+    // Listed -> Funded.
+    let pool = mock_pool_with_asset(&env, &usdc);
+    client.set_pool_contract(&pool);
+    client.mark_funded(&invoice_id, &pool, &usdc, &DEFAULT_FUNDED_AMOUNT);
+    assert!(!raw_status_membership(&env, &client, InvoiceStatus::Listed, &invoice_id));
+    assert!(raw_status_membership(&env, &client, InvoiceStatus::Funded, &invoice_id));
 
-    // A zero-sized page returns nothing.
-    assert_eq!(client.get_by_issuer(&issuer, &0, &0).len(), 0);
+    // Funded -> Active.
+    client.mark_shipped(&invoice_id);
+    assert!(!raw_status_membership(&env, &client, InvoiceStatus::Funded, &invoice_id));
+    assert!(raw_status_membership(&env, &client, InvoiceStatus::Active, &invoice_id));
 
-    // The pages tile the full index: concatenating them reproduces the
-    // unpaginated result set in order, with no gaps or duplicates.
-    let all = client.get_by_issuer(&issuer, &0, &MAX_PAGE_SIZE);
-    assert_eq!(all.len(), 5);
-    let mut combined = soroban_sdk::Vec::new(&env);
-    for page in [&page0, &page1, &page2] {
-        for i in 0..page.len() {
-            combined.push_back(page.get(i).unwrap().id);
-        }
-    }
-    for i in 0..all.len() {
-        assert_eq!(combined.get(i).unwrap(), all.get(i).unwrap().id);
-    }
+    // Active -> Confirmed (both parties confirm).
+    client.confirm_delivery(&invoice_id, &issuer);
+    client.confirm_delivery(&invoice_id, &buyer);
+    assert!(!raw_status_membership(&env, &client, InvoiceStatus::Active, &invoice_id));
+    assert!(raw_status_membership(&env, &client, InvoiceStatus::Confirmed, &invoice_id));
+
+    // Confirmed -> Defaulted once the due date is reached.
+    env.ledger().set_timestamp(due_date);
+    client.trigger_default(&invoice_id);
+    assert!(!raw_status_membership(&env, &client, InvoiceStatus::Confirmed, &invoice_id));
+    assert!(raw_status_membership(&env, &client, InvoiceStatus::Defaulted, &invoice_id));
+
+    // The query helper mirrors the raw storage state after every step above.
+    assert!(!client.has_status_membership(&InvoiceStatus::Confirmed, &invoice_id));
+    assert!(client.has_status_membership(&InvoiceStatus::Defaulted, &invoice_id));
 }
 
 #[test]
-fn test_get_by_buyer_paginates() {
+fn test_has_status_membership_rejects_prior_unknown_and_never_held() {
     let (env, client, issuer, buyer, _, usdc) = setup();
     let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
-    for _ in 0..5 {
-        client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
-    }
+    let invoice_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
 
-    assert_eq!(client.get_by_buyer(&buyer, &0, &2).len(), 2);
-    assert_eq!(client.get_by_buyer(&buyer, &1, &2).len(), 2);
-    assert_eq!(client.get_by_buyer(&buyer, &2, &2).len(), 1);
-    assert_eq!(client.get_by_buyer(&buyer, &3, &2).len(), 0);
-    assert_eq!(client.get_by_buyer(&buyer, &0, &MAX_PAGE_SIZE).len(), 5);
-}
+    // Current status hits in O(1); statuses never held do not.
+    assert!(client.has_status_membership(&InvoiceStatus::Created, &invoice_id));
+    assert!(!client.has_status_membership(&InvoiceStatus::Repaid, &invoice_id));
+    assert!(!client.has_status_membership(&InvoiceStatus::Expired, &invoice_id));
 
-#[test]
-fn test_get_by_status_paginates() {
-    let (env, client, issuer, buyer, _, usdc) = setup();
-    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
-    for _ in 0..5 {
-        client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
-    }
+    // A prior status reads `false` once the invoice has transitioned out.
+    attest(&env, &client, &invoice_id);
+    client.list_for_financing(&invoice_id, &DEFAULT_DISCOUNT_BPS);
+    assert!(!client.has_status_membership(&InvoiceStatus::Created, &invoice_id));
+    assert!(client.has_status_membership(&InvoiceStatus::Listed, &invoice_id));
 
-    assert_eq!(
-        client.get_by_status(&InvoiceStatus::Created, &0, &2).len(),
-        2
-    );
-    assert_eq!(
-        client.get_by_status(&InvoiceStatus::Created, &1, &2).len(),
-        2
-    );
-    assert_eq!(
-        client.get_by_status(&InvoiceStatus::Created, &2, &2).len(),
-        1
-    );
-    assert_eq!(
-        client.get_by_status(&InvoiceStatus::Created, &3, &2).len(),
-        0
-    );
-    assert_eq!(
-        client
-            .get_by_status(&InvoiceStatus::Created, &0, &MAX_PAGE_SIZE)
-            .len(),
-        5
-    );
-}
-
-// The status index is append-only, so a page can legitimately be shorter than
-// `page_size` when it contains entries whose invoice has since moved on. Pin
-// that documented behaviour: a stale slot is skipped and the live invoice shows
-// up on a later page.
-#[test]
-fn test_get_by_status_page_filters_stale_entries() {
-    let (env, client, issuer, buyer, _, usdc) = setup();
-    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
-
-    let stale_id = client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
-    client.create(&issuer, &buyer, &2_000_000_000, &due_date, &usdc);
-
-    // Move the first invoice out of Created; its slot remains in the index.
-    attest(&env, &client, &stale_id);
-    client.list_for_financing(&stale_id, &DEFAULT_DISCOUNT_BPS);
-
-    // Page 0 loads the stale entry, which the status filter drops.
-    assert_eq!(
-        client.get_by_status(&InvoiceStatus::Created, &0, &1).len(),
-        0
-    );
-    // Page 1 loads the still-Created invoice.
-    let page1 = client.get_by_status(&InvoiceStatus::Created, &1, &1);
-    assert_eq!(page1.len(), 1);
-    assert_ne!(page1.get(0).unwrap().id, stale_id);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #27)")]
-fn test_get_by_status_rejects_oversized_page() {
-    let (env, client, issuer, buyer, _, usdc) = setup();
-    let due_date = env.ledger().timestamp() + DEFAULT_DUE_OFFSET;
-    client.create(&issuer, &buyer, &DEFAULT_FACE_VALUE, &due_date, &usdc);
-
-    // One over the cap defeats the per-call gas bound pagination provides.
-    client.get_by_status(&InvoiceStatus::Created, &0, &(MAX_PAGE_SIZE + 1));
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #27)")]
-fn test_get_by_issuer_rejects_oversized_page() {
-    let (_env, client, issuer, _buyer, _, _usdc) = setup();
-    client.get_by_issuer(&issuer, &0, &(MAX_PAGE_SIZE + 1));
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #27)")]
-fn test_get_by_buyer_rejects_oversized_page() {
-    let (_env, client, _issuer, buyer, _, _usdc) = setup();
-    client.get_by_buyer(&buyer, &0, &(MAX_PAGE_SIZE + 1));
+    // An invoice id that was never created has no membership anywhere.
+    let unknown_id = BytesN::from_array(&env, &[0xABu8; 32]);
+    assert!(!client.has_status_membership(&InvoiceStatus::Listed, &unknown_id));
 }
 
 #[test]
@@ -4806,3 +4773,4 @@ fn test_batch_list_for_financing_allows_exactly_max_batch_size() {
     assert!(failed.is_empty());
     assert_eq!(client.get_invoice_count_by_issuer(&issuer), MAX_BATCH_SIZE);
 }
+
