@@ -1,5 +1,5 @@
 [package]
-name = "trusttrove-escrow"
+name = "trusttrove-pause"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,16 +7,10 @@ authors.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-trusttrove-pause = { path = "../pause" }
-trusttrove-ttl = { path = "../ttl" }
 
 [dev-dependencies]
-proptest = { workspace = true }
 soroban-sdk = { workspace = true, features = ["testutils"] }
-
-[features]
-testutils = ["soroban-sdk/testutils"]
