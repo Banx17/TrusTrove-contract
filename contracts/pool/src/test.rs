@@ -430,7 +430,7 @@ fn create_lp_with_balance(te: &TestEnv, balance: i128) -> Address {
     lp
 }
 
-//  DEPOSIT TESTS 
+//  DEPOSIT TESTS
 #[test]
 fn test_first_deposit_issues_one_to_one_shares() {
     let te = setup();
@@ -478,7 +478,7 @@ fn test_second_deposit_scales_by_share_price() {
     assert_eq!(pos.deposit_count, 2);
 }
 
-//  DUST ATTACK / 0-SHARE TESTS (issue #129) 
+//  DUST ATTACK / 0-SHARE TESTS (issue #129)
 // After the pool accrues yield the share price rises above 1.0. A deposit
 // small enough that `usdc_amount * total_shares < total_deposits` would round
 // down to 0 shares. Such a deposit must be rejected with `MinimumDeposit` (#14)
@@ -681,7 +681,7 @@ fn fund_lp(env: &Env, asset: &Address, lp: &Address) {
     });
 }
 
-//  WITHDRAW TESTS 
+//  WITHDRAW TESTS
 #[test]
 fn test_withdraw_returns_correct_usdc() {
     let te = setup();
@@ -748,7 +748,7 @@ fn test_withdraw_more_than_owned_panics() {
     te.pool.withdraw(&te.lp, &20_000_000_000);
 }
 
-//  TRANSFER TESTS 
+//  TRANSFER TESTS
 #[test]
 fn test_transfer_succeeds() {
     let te = setup();
@@ -796,7 +796,7 @@ fn test_transfer_insufficient_balance_panics() {
     te.pool.transfer_shares(&te.lp, &recipient, &20_000_000_000);
 }
 
-//  FUND INVOICE TESTS 
+//  FUND INVOICE TESTS
 #[test]
 fn test_fund_invoice_rejects_zero_funded_amount() {
     let te = setup();
@@ -958,7 +958,7 @@ fn test_revocation_after_funding_does_not_block_lifecycle() {
     assert_eq!(stats.total_funded, 0);
 }
 
-//  ISSUE #275: FUND INVOICE EDGE CASES 
+//  ISSUE #275: FUND INVOICE EDGE CASES
 #[test]
 #[should_panic(expected = "Error(Contract, #2)")]
 fn test_fund_invoice_nonexistent_invoice_panics() {
@@ -1005,7 +1005,7 @@ fn test_fund_invoice_already_funded_invoice_panics() {
     te.pool.fund_invoice(&invoice_id);
 }
 
-//  STATS TESTS 
+//  STATS TESTS
 #[test]
 fn test_get_stats_initial_state() {
     let te = setup();
@@ -1159,7 +1159,7 @@ fn test_get_lp_position_rejects_share_price_overflow() {
     let _ = te.pool.get_lp_position(&te.lp);
 }
 
-//  LP POSITION TESTS 
+//  LP POSITION TESTS
 #[test]
 fn test_lp_position_empty() {
     let te = setup();
@@ -1180,7 +1180,7 @@ fn test_lp_position_after_deposit() {
     assert_eq!(pos.deposit_count, 1);
 }
 
-//  UTILIZATION RATE TESTS 
+//  UTILIZATION RATE TESTS
 #[test]
 fn test_utilization_rate_zero_when_no_deposits() {
     let te = setup();
@@ -1237,7 +1237,7 @@ fn test_utilization_rate_calculates_correctly() {
     );
 }
 
-//  MAX UTILIZATION TESTS 
+//  MAX UTILIZATION TESTS
 #[test]
 fn test_default_max_utilization_in_stats() {
     // Fresh pool without setup override to verify initialize default is 8500
@@ -1307,7 +1307,7 @@ fn test_set_max_utilization_emits_event() {
     assert_eq!(events_after.len(), events.len());
 }
 
-//  GET_USDC_ASSET TESTS 
+//  GET_USDC_ASSET TESTS
 #[test]
 fn test_get_usdc_asset_returns_configured_asset() {
     let te = setup();
@@ -1769,7 +1769,7 @@ fn test_multi_invoice_mixed_repayment_default_and_late_depositor() {
     assert_eq!(final_stats.total_loss_realised, DEFAULT_FUNDED_AMOUNT);
     assert_eq!(te.invoice.get_status(&active), 2);
 }
-//  MULTI-LP TESTS 
+//  MULTI-LP TESTS
 #[test]
 fn test_multiple_lps_can_deposit() {
     let te = setup();
@@ -1793,7 +1793,7 @@ fn test_multiple_lps_can_deposit() {
     assert_eq!(stats.total_deposits, 30_000_000_000);
 }
 
-//  REPAYMENT TESTS 
+//  REPAYMENT TESTS
 #[test]
 fn test_receive_repayment() {
     let te = setup();
@@ -2229,7 +2229,7 @@ fn test_trigger_default_reverts_when_escrow_grace_period_not_elapsed() {
     te.invoice.trigger_default(&invoice_id);
 }
 
-//  DEFAULT TESTS 
+//  DEFAULT TESTS
 #[test]
 fn test_handle_default() {
     let te = setup();
@@ -2317,7 +2317,7 @@ fn test_handle_default_realizes_loss_without_burning_shares() {
     );
 }
 
-//  ISSUE #439: DEFAULT RECOVERY PRESERVES LP CAPITAL 
+//  ISSUE #439: DEFAULT RECOVERY PRESERVES LP CAPITAL
 /// After escrow returns the funded principal, `TotalDeposits` must be
 /// untouched: only `TotalFunded` is unwound. This keeps share price
 /// (`TotalDeposits / TotalShares`) and every LP position intact, so a default
@@ -2582,7 +2582,7 @@ fn test_deposit_when_deposits_zero_but_shares_exist() {
     assert_eq!(new_shares, 5_000_000_000);
 }
 
-//  ISSUE #269: DEPOSIT AFTER DEFAULT (SHARE PRICE < 1) 
+//  ISSUE #269: DEPOSIT AFTER DEFAULT (SHARE PRICE < 1)
 #[test]
 fn test_deposit_after_default_share_price_recovery() {
     let te = setup();
@@ -2648,7 +2648,7 @@ fn test_deposit_after_default_share_price_recovery() {
     assert_eq!(final_stats.total_shares, 10_000_000_000 + shares2);
 }
 
-//  ISSUE #270: WITHDRAW EXACT TOTAL SHARES TO ZERO 
+//  ISSUE #270: WITHDRAW EXACT TOTAL SHARES TO ZERO
 #[test]
 fn test_withdraw_all_shares_to_zero_then_redeposit() {
     let te = setup();
@@ -2690,7 +2690,7 @@ fn test_withdraw_all_shares_to_zero_then_redeposit() {
     assert_eq!(final_pos.deposit_count, 1); // Reset on full withdrawal, so 1 deposit in this cycle
 }
 
-//  ISSUE #258: RESET LP STATE ON FULL WITHDRAWAL 
+//  ISSUE #258: RESET LP STATE ON FULL WITHDRAWAL
 #[test]
 fn test_full_withdraw_resets_lp_state() {
     let te = setup();
@@ -2865,7 +2865,7 @@ fn test_multi_lp_proportional_yield_with_mid_cycle_deposit() {
 // and verified through integration tests. Individual contract auth is covered by the
 // fact that mock_all_auths() is used during setup and cleared when specific auths are set.
 
-//  ISSUE #274: INSUFFICIENT LIQUIDITY ON WITHDRAW 
+//  ISSUE #274: INSUFFICIENT LIQUIDITY ON WITHDRAW
 // LP deposits exactly the amount that will be funded (100% utilization),
 // then tries to withdraw all shares — the pool has zero available liquidity
 // so this must panic with InsufficientLiquidity (#5).
@@ -2981,7 +2981,7 @@ fn test_partial_withdraw_leaves_remaining_liquidity() {
     assert_eq!(pos.shares, 15_000_000_000);
 }
 
-//  ISSUE #268: WITHDRAW AFTER REPAYMENT (SHARE PRICE > 1) 
+//  ISSUE #268: WITHDRAW AFTER REPAYMENT (SHARE PRICE > 1)
 // Covers the "yield grows share price" invariant end-to-end: deposit, fund,
 // repay, then withdraw the same shares and confirm the LP is paid back more
 // USDC than they put in, with the surplus exactly matching the discount
@@ -3038,7 +3038,7 @@ fn test_withdraw_after_repayment_returns_more_than_deposited() {
     );
 }
 
-//  ISSUE #263: INITIALIZE ADDRESS COLLISION GUARD 
+//  ISSUE #263: INITIALIZE ADDRESS COLLISION GUARD
 // A fresh, valid initialize() with four distinct addresses must keep working;
 // `setup()` (used throughout this file) already exercises this path, but this
 // test makes the positive case explicit for the collision guard added below.
@@ -3140,7 +3140,7 @@ fn test_initialize_rejects_treasury_aliases() {
     }
 }
 
-//  ISSUE #265: PREVENT ALREADYFUNDED SILENT SHADOWING 
+//  ISSUE #265: PREVENT ALREADYFUNDED SILENT SHADOWING
 // If a `FundedInvoice` entry already exists for an invoice id, fund_invoice
 // must reject the call with AlreadyFunded (#16) instead of silently
 // overwriting the prior entry (which would double-lock escrow funds and
@@ -3179,7 +3179,7 @@ fn test_fund_invoice_succeeds_when_no_prior_funded_entry() {
     assert_eq!(funded_amount, DEFAULT_FUNDED_AMOUNT);
 }
 
-//  ISSUE #444: DOUBLE FUNDING / FUND AFTER SETTLEMENT 
+//  ISSUE #444: DOUBLE FUNDING / FUND AFTER SETTLEMENT
 // Calling `fund_invoice` twice for the same invoice is rejected by the pool's
 // own `FundedInvoice` guard with AlreadyFunded (#16). That guard is what stops
 // a replay from double-locking escrow funds or double-counting
@@ -3237,7 +3237,7 @@ fn test_fund_invoice_after_default_panics() {
     te.pool.fund_invoice(&invoice_id);
 }
 
-//  ISSUE #281: INSTANCE TTL EXTENSION 
+//  ISSUE #281: INSTANCE TTL EXTENSION
 // Every state-changing entrypoint must extend the contract's instance TTL so
 // an active pool never expires. New instance storage entries start with a
 // small default ttl (well above the extend_ttl threshold), so the
@@ -3293,7 +3293,7 @@ fn test_deposit_extends_instance_ttl_when_below_threshold() {
     );
 }
 
-//  ISSUE #588: LP ENTRY TTL EXTENSION ON get_lp_position 
+//  ISSUE #588: LP ENTRY TTL EXTENSION ON get_lp_position
 // A deposit-and-hold LP only ever has LPShares/LPDepositCount/LPInitialDeposit
 // TTLs set at deposit time. get_lp_position must refresh those entries on
 // read, otherwise they lapse and become archival-eligible even though the
@@ -3388,7 +3388,7 @@ fn test_get_lp_position_extends_ttl_for_yield_earned_entry() {
     );
 }
 
-//  ISSUE #273: INITIALIZATION & AUTH REGRESSION COVERAGE 
+//  ISSUE #273: INITIALIZATION & AUTH REGRESSION COVERAGE
 #[test]
 #[should_panic(expected = "Error(Contract, #1)")]
 fn test_double_initialize_panics() {
@@ -3893,7 +3893,7 @@ mod real_registry_integration {
     }
 }
 
-//  CHECKS-EFFECTS-INTERACTIONS TESTS (issue #576) 
+//  CHECKS-EFFECTS-INTERACTIONS TESTS (issue #576)
 #[test]
 fn test_fund_invoice_commits_state_before_cross_contract_calls() {
     let te = setup();
@@ -3950,7 +3950,7 @@ fn test_fund_invoice_prevents_double_funding_via_funded_key_check() {
     assert!(result.is_err());
 }
 
-//  INITIALIZE EVENT TESTS (issue #575) 
+//  INITIALIZE EVENT TESTS (issue #575)
 #[test]
 fn test_initialize_emits_pool_initialized_event() {
     let env = Env::default();
@@ -4011,7 +4011,7 @@ fn test_initialize_emits_pool_initialized_event() {
     assert!(found, "pool_initialized event not found");
 }
 
-//  PUBLIC GETTER TESTS (issue #578) 
+//  PUBLIC GETTER TESTS (issue #578)
 #[test]
 fn test_get_admin_returns_correct_address() {
     let te = setup();
@@ -4125,7 +4125,7 @@ fn test_handle_default_panics_with_typed_not_initialized() {
     pool.handle_default(&invoice_id);
 }
 
-//  CONSTANTS LOCATION TESTS (issue #592) 
+//  CONSTANTS LOCATION TESTS (issue #592)
 // DEFAULT_MIN_INITIAL_DEPOSIT and DEFAULT_MAX_UTILIZATION_BPS must be importable from
 // `constants` (re-exported via `pub use constants::*` in lib.rs) and hold the
 // canonical values.
@@ -4140,7 +4140,7 @@ fn test_default_max_utilization_bps_constant_value() {
     assert_eq!(DEFAULT_MAX_UTILIZATION_BPS, 8500);
 }
 
-//  WITHDRAW DUST-GUARD TESTS (issue #593) 
+//  WITHDRAW DUST-GUARD TESTS (issue #593)
 // Withdraw must reject when the computed USDC redemption rounds down to zero,
 // just as deposit rejects when the computed share count rounds down to zero.
 // This prevents an LP from burning shares for nothing.
@@ -4227,7 +4227,7 @@ fn test_withdraw_dust_rejection_preserves_state() {
     assert_eq!(after.total_deposits, before.total_deposits);
 }
 
-//  CHECKED SUBTRACTION TESTS (issue #594) 
+//  CHECKED SUBTRACTION TESTS (issue #594)
 // handle_default: TotalFunded subtraction must not panic on valid data and must
 // correctly reduce TotalFunded while preserving TotalDeposits (#439).
 #[test]
@@ -4487,7 +4487,7 @@ fn prop_repayment_increases_deposits_by_yield_and_clears_funded() {
         .unwrap();
 }
 
-//  ISSUE #771: NONZERO PROTOCOL FEE SPLITS 
+//  ISSUE #771: NONZERO PROTOCOL FEE SPLITS
 #[test]
 fn test_freshly_initialized_pool_has_zero_protocol_fee() {
     let te = setup();
@@ -4590,7 +4590,7 @@ fn test_nonzero_protocol_fee_splits_receive_repayment_with_refund() {
     );
 }
 
-//  ISSUE #846: PROPT — FEE SPLIT CONSERVES YIELD 
+//  ISSUE #846: PROPT — FEE SPLIT CONSERVES YIELD
 // For every fee_bps in 0..=MAX_PROTOCOL_FEE_BPS and every yield settled
 // through `settle_repayment`, the protocol cut plus the yield credited back
 // to LPs must reassemble the yield that arrived: the fee split only
@@ -4666,7 +4666,7 @@ fn prop_protocol_fee_split_conserves_yield_for_all_fee_bps() {
         )
         .unwrap();
 }
-//  ISSUE #774: GAS BENCHMARK FOR DEPOSIT / WITHDRAW 
+//  ISSUE #774: GAS BENCHMARK FOR DEPOSIT / WITHDRAW
 #[test]
 fn test_gas_benchmark_deposit_and_withdraw() {
     extern crate std;
@@ -4710,7 +4710,7 @@ fn test_gas_benchmark_deposit_and_withdraw() {
     assert_eq!(returned, 5_000_000_000);
 }
 
-//  ISSUE #772: NEGATIVE-AUTH FOR SET_PROTOCOL_FEE 
+//  ISSUE #772: NEGATIVE-AUTH FOR SET_PROTOCOL_FEE
 // set_protocol_fee must reject callers other than the admin (#772), matching
 // the pattern used by set_max_utilization.
 #[test]
@@ -4761,7 +4761,7 @@ fn test_set_protocol_fee_rejects_treasury_aliases() {
     }
 }
 
-//  ISSUE #770: DEFAULT-ZERO PROTOCOL FEE ACCOUNTING REGRESSION 
+//  ISSUE #770: DEFAULT-ZERO PROTOCOL FEE ACCOUNTING REGRESSION
 #[test]
 fn test_default_zero_protocol_fee_preserves_repayment_accounting_unchanged() {
     let te = setup();
@@ -4853,7 +4853,7 @@ fn test_default_zero_protocol_fee_preserves_refunded_repayment_accounting_unchan
     );
 }
 
-//  ISSUE #765: PROTOCOL FEE STORAGE AND INITIALIZATION 
+//  ISSUE #765: PROTOCOL FEE STORAGE AND INITIALIZATION
 #[test]
 fn test_protocol_fee_storage_initialized_to_zero_and_admin_treasury() {
     let te = setup();
@@ -4933,7 +4933,7 @@ fn test_sep41_balance_and_total_supply() {
     assert_eq!(lp_balance, 100_000_000);
 }
 
-//  ISSUE #756: SEP-41 ALLOWANCE INTERFACE 
+//  ISSUE #756: SEP-41 ALLOWANCE INTERFACE
 // approve() records a grant that allowance() reports until it is spent,
 // revoked, or expires.
 #[test]
@@ -5122,7 +5122,7 @@ fn test_approve_emits_allowance_approved_event() {
     assert_eq!(te.env.events().all().len(), events.len());
 }
 
-//  ISSUE #757: SEP-41 SHARE METADATA 
+//  ISSUE #757: SEP-41 SHARE METADATA
 #[test]
 fn test_share_metadata_comes_from_initialize() {
     let te = setup();
@@ -5236,7 +5236,7 @@ fn test_share_metadata_unreadable_before_initialize() {
     assert_eq!(pool.decimals(), DEFAULT_SHARE_DECIMALS);
 }
 
-//  ISSUE #758: DEPOSIT ROUTES THROUGH mint() 
+//  ISSUE #758: DEPOSIT ROUTES THROUGH mint()
 // The `mint()` extraction must be invisible from the outside: same shares, same
 // bookkeeping, and exactly one event with the same payload shape.
 #[test]
@@ -5300,7 +5300,7 @@ fn test_share_supply_stays_consistent_across_mint_and_burn() {
     assert_eq!(te.pool.get_lp_position(&te.lp).shares, 6_000_000_000);
 }
 
-//  ISSUE #767: protocol_fee_updated EVENT 
+//  ISSUE #767: protocol_fee_updated EVENT
 // A fee/treasury change is high-impact for LPs, so it must be observable
 // without polling `get_protocol_fee_bps`, and the event must carry the *old*
 // value so an indexer can report what changed.
@@ -5898,9 +5898,13 @@ fn test_expire_listing_then_fund_invoice_fails_invoice_not_listed() {
 
     // Create and list an invoice with a short expiry window
     let due_date = te.env.ledger().timestamp() + 86400;
-    let invoice_id = te
-        .invoice
-        .create(&te.issuer, &te.buyer, &10_000_000_000, &due_date, &te.usdc_id);
+    let invoice_id = te.invoice.create(
+        &te.issuer,
+        &te.buyer,
+        &10_000_000_000,
+        &due_date,
+        &te.usdc_id,
+    );
     attest_invoice(&te, &invoice_id);
     te.invoice.list_for_financing(&invoice_id, &200);
 
@@ -5934,14 +5938,23 @@ fn test_expire_listing_then_fund_invoice_fails_invoice_not_listed() {
 
     // Try to fund the expired invoice - must fail with InvoiceNotListed (#8)
     let result = te.pool.try_fund_invoice(&invoice_id);
-    assert!(result.is_err(), "fund_invoice must fail for expired invoice");
+    assert!(
+        result.is_err(),
+        "fund_invoice must fail for expired invoice"
+    );
 
     // Verify pool totals and active_invoice_count are unchanged
     let stats_after = te.pool.get_stats();
     assert_eq!(stats_after.total_deposits, stats_before.total_deposits);
     assert_eq!(stats_after.total_funded, stats_before.total_funded);
-    assert_eq!(stats_after.active_invoice_count, stats_before.active_invoice_count);
-    assert_eq!(stats_after.available_liquidity, stats_before.available_liquidity);
+    assert_eq!(
+        stats_after.active_invoice_count,
+        stats_before.active_invoice_count
+    );
+    assert_eq!(
+        stats_after.available_liquidity,
+        stats_before.available_liquidity
+    );
     assert_eq!(stats_after.total_shares, stats_before.total_shares);
 }
 
@@ -5954,9 +5967,13 @@ fn test_fund_invoice_succeeds_at_deadline_minus_one_expiry_rejected() {
 
     // Create and list an invoice
     let due_date = te.env.ledger().timestamp() + 86400;
-    let invoice_id = te
-        .invoice
-        .create(&te.issuer, &te.buyer, &10_000_000_000, &due_date, &te.usdc_id);
+    let invoice_id = te.invoice.create(
+        &te.issuer,
+        &te.buyer,
+        &10_000_000_000,
+        &due_date,
+        &te.usdc_id,
+    );
     attest_invoice(&te, &invoice_id);
     te.invoice.list_for_financing(&invoice_id, &200);
 
@@ -5970,7 +5987,10 @@ fn test_fund_invoice_succeeds_at_deadline_minus_one_expiry_rejected() {
 
     // Funding should succeed at deadline - 1
     let funded = te.pool.fund_invoice(&invoice_id);
-    assert!(funded, "funding must succeed one second before expiry deadline");
+    assert!(
+        funded,
+        "funding must succeed one second before expiry deadline"
+    );
 
     // Verify invoice is now Funded (2)
     assert_eq!(te.invoice.get_status(&invoice_id), 2);
@@ -5983,7 +6003,10 @@ fn test_fund_invoice_succeeds_at_deadline_minus_one_expiry_rejected() {
     // Now try to expire - must fail with ListingNotExpired (#14)
     // because the invoice is no longer Listed (it's Funded)
     let result = te.invoice.try_expire_listing(&invoice_id, &te.issuer);
-    assert!(result.is_err(), "expire_listing must fail for funded invoice");
+    assert!(
+        result.is_err(),
+        "expire_listing must fail for funded invoice"
+    );
 }
 
 /// Proves that share-price appreciation is correctly reflected in LP positions
@@ -6288,7 +6311,7 @@ fn test_get_suggested_discount_bps_uninitialized_pool_returns_floor() {
         SUGGESTED_DISCOUNT_FLOOR_BPS
     );
 }
-//  ISSUE #440: TRANSFER OWNERSHIP 
+//  ISSUE #440: TRANSFER OWNERSHIP
 #[test]
 fn test_pool_transfer_ownership_changes_admin_and_emits_event() {
     let te = setup();
@@ -6356,7 +6379,7 @@ fn test_pool_transfer_ownership_requires_new_admin_consent() {
     assert_eq!(te.pool.get_admin(), te.admin);
 }
 
-//  ISSUE #714: EMERGENCY PAUSE / UNPAUSE 
+//  ISSUE #714: EMERGENCY PAUSE / UNPAUSE
 #[test]
 fn test_pause_blocks_state_changes_and_unpause_restores_them() {
     let te = setup();
@@ -6478,7 +6501,7 @@ fn test_pool_transfer_ownership_blocked_while_paused() {
     assert!(te.pool.try_transfer_ownership(&new_admin).is_err());
     assert_eq!(te.pool.get_admin(), te.admin);
 }
-//  ISSUE #722: BATCH FUND INVOICE 
+//  ISSUE #722: BATCH FUND INVOICE
 #[test]
 fn test_batch_fund_invoice_funds_every_entry() {
     let te = setup();
