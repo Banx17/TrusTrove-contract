@@ -62,30 +62,32 @@ Soroban charges fees based on a budget model: each operation consumes
 CPU instructions, memory, and ledger I/O. The following are approximate
 relative costs based on code analysis.
 
-| Operation                              | Cross-Contract Calls                                                                               | Token Transfers                    | CPU Instructions | Memory (Bytes) | Relative Budget                                   |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------- | -------------- | ------------------------------------------------- |
-| `registry::register_issuer`            | 0                                                                                                  | 0                                  | —                | —              | Very Low                                          |
-| `registry::revoke`                     | 0                                                                                                  | 0                                  | —                | —              | Very Low                                          |
-| `invoice::create`                      | 2 (`is_verified` ×2)                                                                               | 0                                  | —                | —              | Low                                               |
-| `invoice::batch_create`                | 2 per entry (`is_verified` ×2)                                                                     | 0                                  | —                | —              | Low per entry, **up to 50× `create`**             |
-| `invoice::list_for_financing`          | 0                                                                                                  | 0                                  | —                | —              | Low                                               |
-| `invoice::batch_list_for_financing`    | 0                                                                                                  | 0                                  | —                | —              | Low per entry, **up to 50× `list_for_financing`** |
-| `invoice::mark_funded`                 | 0                                                                                                  | 0                                  | —                | —              | Low                                               |
-| `invoice::repay`                       | 1 (`receive_repayment`)                                                                            | 1 (buyer → pool)                   | —                | —              | Medium                                            |
-| `invoice::trigger_default`             | 1 (`handle_default`)                                                                               | 0                                  | —                | —              | Medium                                            |
-| `pool::deposit` (before refactor)      | 0                                                                                                  | 1 (LP → pool)                      | ~456,800         | ~73,400        | Low-Medium                                        |
-| `pool::deposit` (after `mint()`)       | 0                                                                                                  | 1 (LP → pool)                      | 457,992          | 73,495         | Low-Medium                                        |
-| `pool::withdraw` (before refactor)     | 0                                                                                                  | 1 (pool → LP)                      | ~450,500         | ~63,550        | Medium                                            |
-| `pool::withdraw` (after `burn()`)      | 0                                                                                                  | 1 (pool → LP)                      | 451,634          | 63,660         | Medium                                            |
-| `pool::fund_invoice`                   | 6 (`get_status`, `get_funding_asset`, `get_face_value`, `get_discount_bps`, `lock`, `mark_funded`) | 1 (pool → escrow)                  | —                | —              | **High**                                          |
-| `pool::batch_fund_invoice`             | 6 per entry                                                                                        | 1 per entry                        | —                | —              | **High** per entry, **up to 50× `fund_invoice`**  |
-| `pool::receive_repayment`              | 0                                                                                                  | 0                                  | —                | —              | Low                                               |
-| `pool::handle_default`                 | 1 (`escrow::handle_default`)                                                                       | 1 (escrow → pool)                  | —                | —              | Medium                                            |
-| `pool_factory::register_existing_pool` | 0                                                                                                  | 0                                  | 69,486           | 7,604          | Low                                               |
-| `escrow::lock`                         | 0                                                                                                  | 1 (pool → escrow)                  | —                | —              | Medium                                            |
-| `escrow::release_to_issuer`            | 0                                                                                                  | 1 (escrow → issuer)                | —                | —              | Medium                                            |
-| `escrow::release_to_pool`              | 0                                                                                                  | 1 (escrow → pool, partial allowed) | —                | —              | Medium                                            |
-| `escrow::handle_default`               | 0                                                                                                  | 1 (escrow → pool)                  | —                | —              | Medium                                            |
+| Operation | Cross-Contract Calls | Token Transfers | CPU Instructions | Memory (Bytes) | Relative Budget |
+|-----------|---------------------|-----------------|------------------|----------------|-----------------|
+| `registry::register_issuer` | 0 | 0 | — | — | Very Low |
+| `registry::revoke` | 0 | 0 | — | — | Very Low |
+| `registry::get_profile_count` | 0 | 0 | — | — | Very Low |
+| `registry::list_profiles` | 0 | 0 | — | — | Low (O(limit), ≤ 50) |
+| `invoice::create` | 2 (`is_verified` ×2) | 0 | — | — | Low |
+| `invoice::batch_create` | 2 per entry (`is_verified` ×2) | 0 | — | — | Low per entry, **up to 50× `create`** |
+| `invoice::list_for_financing` | 0 | 0 | — | — | Low |
+| `invoice::batch_list_for_financing` | 0 | 0 | — | — | Low per entry, **up to 50× `list_for_financing`** |
+| `invoice::mark_funded` | 0 | 0 | — | — | Low |
+| `invoice::repay` | 1 (`receive_repayment`) | 1 (buyer → pool) | — | — | Medium |
+| `invoice::trigger_default` | 1 (`handle_default`) | 0 | — | — | Medium |
+| `pool::deposit` (before refactor) | 0 | 1 (LP → pool) | ~456,800 | ~73,400 | Low-Medium |
+| `pool::deposit` (after `mint()`) | 0 | 1 (LP → pool) | 457,992 | 73,495 | Low-Medium |
+| `pool::withdraw` (before refactor) | 0 | 1 (pool → LP) | ~450,500 | ~63,550 | Medium |
+| `pool::withdraw` (after `burn()`) | 0 | 1 (pool → LP) | 451,634 | 63,660 | Medium |
+| `pool::fund_invoice` | 6 (`get_status`, `get_funding_asset`, `get_face_value`, `get_discount_bps`, `lock`, `mark_funded`) | 1 (pool → escrow) | — | — | **High** |
+| `pool::batch_fund_invoice` | 6 per entry | 1 per entry | — | — | **High** per entry, **up to 50× `fund_invoice`** |
+| `pool::receive_repayment` | 0 | 0 | — | — | Low |
+| `pool::handle_default` | 1 (`escrow::handle_default`) | 1 (escrow → pool) | — | — | Medium |
+| `pool_factory::register_existing_pool` | 0 | 0 | 69,486 | 7,604 | Low |
+| `escrow::lock` | 0 | 1 (pool → escrow) | — | — | Medium |
+| `escrow::release_to_issuer` | 0 | 1 (escrow → issuer) | — | — | Medium |
+| `escrow::release_to_pool` | 0 | 1 (escrow → pool, partial allowed) | — | — | Medium |
+| `escrow::handle_default` | 0 | 1 (escrow → pool) | — | — | Medium |
 
 Every mutating entry point above also reads the shared pause flag
 (`trusttrove-pause`), adding one instance-storage read per call. That read is
@@ -122,15 +124,18 @@ The benchmark demonstrates negligible gas overhead (~0.25% CPU instruction delta
   empty result is returned. The status index is append-only, so a page can
   return fewer than `page_size` invoices when it contains stale entries whose
   invoice has since moved to another status.
-  However, both reads and writes still scale linearly with the total index size:
-  the `extend_issuer_index`, `extend_buyer_index`, and `extend_status_index`
-  helpers scan the whole index to deduplicate before appending, and `move_status_index`
-  scans the target status index. Stale entries remaining in old status indexes after
-  a transition are skipped only by loading and checking the full invoice —
-  there is no O(1) membership marker (`DataKey::StatusMembership` does not
-  exist in `contracts/invoice/src/lib.rs`). Both reads and writes are
-  therefore O(n) in the size of the index; this is tracked for optimization
-  in [#831](https://github.com/TrusTrove/TrusTrove-contract/issues/831).
+- `get_invoice_count_by_issuer` and `get_invoice_count_by_buyer` avoid that
+  cost entirely: they read a single stored counter (`u32`) in O(1), so
+  pagination and badge UIs should prefer them over `.len()` on the
+  full-fetch views.
+- `registry::list_profiles` is bounded per call: it returns at most 50
+  addresses (`PageSizeExceeded` above that, mirroring the 50-entry batch cap)
+  and costs O(1) in `limit`, not in the total number of registered profiles.
+  Read `registry::get_profile_count(role)` once to size the final page, then
+  walk `start = 0, limit, 2 * limit, …` until a page comes back short. Each
+  enumerated address costs one persistent entry plus its TTL bump, so a page of
+  50 is roughly 50 reads — indexers that want thousands of addresses should
+  page off-chain rather than in one call.
 
 ### Batch Operations
 
