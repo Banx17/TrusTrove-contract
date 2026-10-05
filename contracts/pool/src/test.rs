@@ -474,6 +474,75 @@ fn test_second_deposit_scales_by_share_price() {
     assert_eq!(pos.deposit_count, 2);
 }
 
+#[test]
+fn test_preview_deposit_matches_deposit_across_share_prices() {
+    let amounts = [
+        DEFAULT_MIN_INITIAL_DEPOSIT,
+        DEFAULT_MIN_INITIAL_DEPOSIT * 2,
+        5_000_000_000,
+    ];
+
+    // An empty pool mints one share per unit deposited.
+    for amount in amounts {
+        let te = setup();
+        let preview = te.pool.preview_deposit(&amount);
+        let issued = te.pool.deposit(&te.lp, &amount);
+        assert_eq!(preview, issued);
+        assert_eq!(preview, amount);
+    }
+
+    // A pool with a 1:1 share price preserves the same ratio for later deposits.
+    for amount in amounts {
+        let te = setup();
+        te.pool.deposit(&te.lp, &10_000_000_000);
+        let before = te.pool.get_stats();
+        let preview = te.pool.preview_deposit(&amount);
+        let after = te.pool.get_stats();
+        assert_eq!(after.total_deposits, before.total_deposits);
+        assert_eq!(after.total_shares, before.total_shares);
+        let issued = te.pool.deposit(&te.lp, &amount);
+        assert_eq!(preview, issued);
+    }
+
+    // Repayment yield raises the share price, so previews must use the same
+    // floor rounding as a real deposit at that price.
+    for amount in [2u128, 3, 1_000_000, 5_000_000_000] {
+        let te = setup();
+        te.pool.deposit(&te.lp, &10_000_000_000);
+        fund_and_repay_invoice(&te);
+        let preview = te.pool.preview_deposit(&amount);
+        let issued = te.pool.deposit(&te.lp, &amount);
+        assert_eq!(preview, issued);
+    }
+}
+
+#[test]
+fn test_preview_deposit_requires_no_authorization() {
+    let te = setup();
+    te.env.set_auths(&[]);
+
+    assert_eq!(
+        te.pool.preview_deposit(&DEFAULT_MIN_INITIAL_DEPOSIT),
+        DEFAULT_MIN_INITIAL_DEPOSIT
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn test_preview_deposit_rejects_zero_amount() {
+    let te = setup();
+    te.pool.preview_deposit(&0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_preview_deposit_rejects_dust_after_yield() {
+    let te = setup();
+    te.pool.deposit(&te.lp, &10_000_000_000);
+    fund_and_repay_invoice(&te);
+    te.pool.preview_deposit(&1);
+}
+
 //  DUST ATTACK / 0-SHARE TESTS (issue #129)
 // After the pool accrues yield the share price rises above 1.0. A deposit
 // small enough that `usdc_amount * total_shares < total_deposits` would round
