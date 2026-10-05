@@ -399,7 +399,17 @@ fn create_and_list_with_params(
     face_value: u128,
     discount_bps: u32,
 ) -> BytesN<32> {
-    let due_date = te.env.ledger().timestamp() + 86400;
+    create_and_list_with_params_and_term(te, funding_asset, face_value, discount_bps, 86400)
+}
+
+fn create_and_list_with_params_and_term(
+    te: &TestEnv,
+    funding_asset: &Address,
+    face_value: u128,
+    discount_bps: u32,
+    term: u64,
+) -> BytesN<32> {
+    let due_date = te.env.ledger().timestamp() + term;
     let invoice_id =
         te.invoice
             .create(&te.issuer, &te.buyer, &face_value, &due_date, funding_asset);
