@@ -566,39 +566,8 @@ impl PoolContract {
         require_not_paused(&env);
         Self::require_initialized(&env);
         lp.require_auth();
-        if usdc_amount == 0 {
-            panic_with_error!(&env, PoolError::InvalidAmount);
-        }
-
-        let totals = Self::totals(&env);
-        let total_shares = totals.shares;
-        let total_deposits = totals.deposits;
-
-        if (total_shares == 0 || total_deposits == 0)
-            && usdc_amount < Self::min_initial_deposit(&env)
-        {
-            panic_with_error!(&env, PoolError::InvalidAmount);
-        }
-
-        let shares_to_issue = if total_shares == 0 || total_deposits == 0 {
-            usdc_amount
-        } else {
-            let scaled = usdc_amount
-                .checked_mul(total_shares)
-                .unwrap_or_else(|| panic_with_error!(&env, PoolError::Overflow));
-            scaled / total_deposits
-        };
-
-        // Dust-attack guard: once the pool accrues yield, the share price
-        // (total_deposits / total_shares) rises above 1.0, so a sufficiently
-        // small deposit can round down to 0 shares while its USDC is still
-        // pulled into total_deposits, silently donating the deposit to existing
-        // LPs. Reject any deposit that would mint 0 shares so the caller keeps
-        // their funds. This check runs before the token transfer, so no USDC
-        // leaves the depositor on the rejection path.
-        if shares_to_issue == 0 {
-            panic_with_error!(&env, PoolError::MinimumDeposit);
-        }
+        let shares_to_issue = Self::shares_for_deposit(&env, usdc_amount);
+        let total_deposits = Self::totals(&env).deposits;
 
         let usdc_id = Self::funding_asset(&env);
         let usdc = token::Client::new(&env, &usdc_id);
@@ -633,6 +602,37 @@ impl PoolContract {
 
         events::lp_deposited(&env, &lp, usdc_amount, shares_to_issue);
         shares_to_issue
+    }
+
+    /// Previews the number of pool shares a deposit would mint.
+    ///
+    /// Uses the same proportional calculation and rounding as `deposit`, and
+    /// only reads pool state. No authorization is required.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `usdc_amount` - The amount of USDC to deposit.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// * `NotInitialized` if the pool is not initialized.
+    /// * `InvalidAmount` if `usdc_amount` is zero or is below the configured
+    ///   minimum for an initial deposit.
+    /// * `MinimumDeposit` if the amount rounds down to zero shares.
+    /// * `Overflow` if `usdc_amount * total_shares` overflows `u128`.
+    ///
+    /// # Returns
+    /// * `u128` - The number of shares `deposit` would issue.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let shares = client.preview_deposit(10_000_000);
+    /// ```
+    pub fn preview_deposit(env: Env, usdc_amount: u128) -> u128 {
+        Self::require_initialized(&env);
+        Self::shares_for_deposit(&env, usdc_amount)
     }
 
     /// Withdraws shares from the pool and transfers USDC to the LP.
@@ -2026,6 +2026,34 @@ impl PoolContract {
             .instance()
             .get(&DataKey::MinInitialDeposit)
             .unwrap_or(DEFAULT_MIN_INITIAL_DEPOSIT)
+    }
+
+    fn shares_for_deposit(env: &Env, usdc_amount: u128) -> u128 {
+        if usdc_amount == 0 {
+            panic_with_error!(env, PoolError::InvalidAmount);
+        }
+
+        let totals = Self::totals(env);
+        if (totals.shares == 0 || totals.deposits == 0)
+            && usdc_amount < Self::min_initial_deposit(env)
+        {
+            panic_with_error!(env, PoolError::InvalidAmount);
+        }
+
+        let shares_to_issue = if totals.shares == 0 || totals.deposits == 0 {
+            usdc_amount
+        } else {
+            let scaled = usdc_amount
+                .checked_mul(totals.shares)
+                .unwrap_or_else(|| panic_with_error!(env, PoolError::Overflow));
+            scaled / totals.deposits
+        };
+
+        if shares_to_issue == 0 {
+            panic_with_error!(env, PoolError::MinimumDeposit);
+        }
+
+        shares_to_issue
     }
 
     fn registry_contract(env: &Env) -> Address {
